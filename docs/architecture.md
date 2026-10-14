@@ -1,13 +1,13 @@
 # Architecture
 
-spotify-hue-sync is a single Cats Effect application. It polls Spotify for what is playing, turns the current track into a colour palette, and streams a light frame to a Philips Hue entertainment zone about 60 times a second.
+spotify-hue-sync is a single Cats Effect application. It polls Spotify for what is playing, turns the current track into a tempo and a colour palette, and streams a light frame to a Philips Hue entertainment zone about 60 times a second.
 
 ## Components
 
 ```mermaid
 flowchart LR
     subgraph Spotify
-        API[Web API<br/>/me/player]
+        API[Web API<br/>/me/player<br/>/audio-features]
         ACC[Accounts<br/>OAuth]
     end
 
@@ -15,7 +15,8 @@ flowchart LR
         CB[Callback server<br/>127.0.0.1:7070]
         SC[SpotifyClient]
         SE[SyncEngine]
-        PAL[Palette / RGB<br/>colour engine]
+        PAL[Palette / RGB / Pulse<br/>colour engine]
+        REN[Renderer<br/>pause fade]
         HC[HueClient]
         DE[DtlsEmitter]
     end
@@ -30,9 +31,10 @@ flowchart LR
     SC -- token exchange --> ACC
     SC -- poll playback state --> API
     SE -- getPlaybackState --> SC
-    SE -- palette per track --> PAL
+    SE -- palette and pulse --> PAL
+    SE -- when paused --> REN
     SE -- frames --> DE
-    HC -- start / stop streaming --> CLIP
+    HC -- read channels, start / stop streaming --> CLIP
     DE -- DTLS PSK packets --> ENT
 ```
 
@@ -42,9 +44,9 @@ flowchart LR
 |---|---|
 | (root) | `Main`, which wires everything together, and `SyncEngine`, which turns playback state into light frames |
 | `client` | Everything that talks to the outside world: `SpotifyClient`, `CachedSpotifyClient`, `HueClient` and `DtlsEmitter` |
-| `domain.config` | `AppConfig` and `HueConfig`, loaded from `application.conf` with pureconfig |
-| `domain.engine` | The colour engine: `RGB`, `Palette`, `PaletteType`, `Order` and `LocalPlayback` |
-| `domain.hue` | The Hue streaming protocol: `Frame`, `LightUpdate` and their binary codecs |
+| `domain.config` | `AppConfig`, `HueConfig` and `LightShowConfig` (with `PulseSettings` and `PauseSettings`), loaded with pureconfig from `application.conf` on top of the defaults in `reference.conf` |
+| `domain.engine` | The colour engine and animation: `RGB`, `Palette`, `PaletteType`, `Order`, `Pulse` (the envelope), `Renderer` (the pause fade) and `LocalPlayback` |
+| `domain.hue` | The Hue streaming protocol: `Zone`, `Frame`, `LightUpdate` and their binary codecs |
 | `domain.spotify` | Spotify API models: `PlaybackState`, `SpotifyToken`, `SpotifySegment`, `SpotifyCredentials` |
 | `givens.circe` | Shared circe codecs |
 
@@ -62,58 +64,66 @@ classDiagram
         spotify: SpotifyCredentials
         hue: HueConfig
         pollingIntervalMs: Int
+        lightShow: LightShowConfig
     }
-    class HueConfig {
-        zoneId: String
-        creds: HueCredentials
+    class LightShowConfig {
+        palette: PaletteType
+        defaultBpm: Double
+        beatsPerPulse: Double
+        syncOffsetMs: Long
+        frameIntervalMs: Long
+        pulse: PulseSettings
+        pause: PauseSettings
     }
-    class HueCredentials {
-        address: String
-        username: String
-        psk: String
+    class PulseSettings {
+        stagger: Double
+        attack: Double
+        sustain: Double
+        decayCurve: Double
+        restLevel: Double
+        peakBoost: Double
     }
-    class SpotifyCredentials {
-        clientId: String
-        clientSecret: String
-        refreshToken: String
+    class PauseSettings {
+        restingColour: RGB
+        fadeOutMs: Long
     }
 
     class SyncEngine~F~ {
-        -paletteCache: Ref~Map~
+        -tracks: Ref~Map~
         +run: Stream~Frame~
-        +make(config, spotify)$ F~SyncEngine~
-        +pulseFrame(zoneId, bpm, progressMs, palette)$ Frame
+        +showFor(trackId) F~TrackShow~
+        +make(config, spotify, zone, random)$ F~SyncEngine~
+        +pulseFrame(zone, palette, bpm, positionMs, settings)$ Frame
+    }
+    class TrackShow {
+        bpm: Double
+        palette: Palette
     }
 
     class SpotifyClient~F~ {
-        -tokenRef: Ref~Option~
-        -authCodeDeferred: Deferred~String~
-        +initialAuth: F~String~
         +getPlaybackState: F~Option~
-        +getTrackAnalysis(id) F~Vector~
+        +getTempo(id) F~Option~
     }
-    class CachedSpotifyClient~F~ {
-        -cache: Ref~Map~
-        +getTrackAnalysis(id) F~Vector~
-    }
-
     class HueClient~F~ {
+        +getChannels(zoneId) F~List~
         +setStreaming(zoneId, active) F~Unit~
     }
     class DtlsEmitter~F~ {
-        +resource: Resource~DTLSConnector~
         +send(connector, frame) F~Unit~
     }
 
-    class PlaybackState {
-        trackId: TrackId
-        progress: FiniteDuration
-        isPlaying: Boolean
-        albumCoverUrl: String
+    class Pulse {
+        +level(phase, settings)$ Double
+        +brightness(level, settings)$ Double
     }
-    class LocalPlayback {
-        state: PlaybackState
-        receivedAt: Instant
+    class Renderer {
+        +playing(frame)$ RenderState and Frame
+        +paused(state, now, zone, pause)$ RenderState and Frame
+        +fade(from, to, progress)$ Frame
+    }
+    class RenderState {
+        lastPlayed: Option~Frame~
+        pausedSince: Option~FiniteDuration~
     }
 
     class Palette {
@@ -125,27 +135,28 @@ classDiagram
         r: ByteInt
         g: ByteInt
         b: ByteInt
-        +compliment: Option~RGB~
-        +analogous: List~RGB~
+        +rotateHue(degrees) RGB
+        +scaleBrightness(factor) RGB
+        +mix(other, t) RGB
     }
     class PaletteType {
         <<enumeration>>
+        Analogous
         Complementary
         Monochromatic
-        Analogous
         Triadic
         Tetradic
         AnalogousComplementary(order)
     }
-    class Order {
-        <<enumeration>>
-        Flat
-        Interspersed
-    }
 
+    class Zone {
+        id: String
+        channels: List~Int~
+    }
     class Frame {
         zoneId: String
         updates: List~LightUpdate~
+        sequence: Int
     }
     class LightUpdate {
         id: Int
@@ -154,21 +165,21 @@ classDiagram
 
     Main --> AppConfig
     Main --> SyncEngine
-    Main --> CachedSpotifyClient
     Main --> HueClient
     Main --> DtlsEmitter
-    AppConfig *-- HueConfig
-    AppConfig *-- SpotifyCredentials
-    HueConfig *-- HueCredentials
-    CachedSpotifyClient --|> SpotifyClient
+    AppConfig *-- LightShowConfig
+    LightShowConfig *-- PulseSettings
+    LightShowConfig *-- PauseSettings
+    LightShowConfig --> PaletteType
     SyncEngine --> SpotifyClient
-    SyncEngine ..> LocalPlayback
-    SyncEngine ..> Palette
-    SyncEngine ..> Frame
-    LocalPlayback *-- PlaybackState
+    SyncEngine --> Zone
+    SyncEngine ..> TrackShow
+    SyncEngine ..> Pulse
+    SyncEngine ..> Renderer
+    Renderer ..> RenderState
+    TrackShow *-- Palette
     Palette *-- RGB
     Palette ..> PaletteType
-    PaletteType ..> Order
     Frame *-- LightUpdate
     LightUpdate *-- RGB
     DtlsEmitter ..> Frame
@@ -189,7 +200,9 @@ sequenceDiagram
 
     M->>C: load application.conf (env variables)
     M->>S: build HTTP client and start callback server on :7070
-    M->>E: SyncEngine.make (creates the palette cache)
+    M->>H: getChannels(zone)
+    H-->>M: channel ids
+    M->>E: SyncEngine.make (zone, track cache)
     M->>H: setStreaming(zone, active = true)
     M->>D: open DTLS connection to bridge:2100
     loop until stopped
@@ -204,7 +217,8 @@ sequenceDiagram
 
 - Everything runs in `IO` through tagless-final `F[_]` constraints (`Async`, `Network`).
 - Shared state lives in Cats Effect primitives:
-  - `Ref` for the Spotify access token, the palette cache and the track-analysis cache
+  - `Ref` for the Spotify access token, the per-track tempo and palette cache, and the track-analysis cache
   - `Deferred` to hand the OAuth code from the callback server to the client
   - `SignallingRef` for the latest playback state shared by the poller and the renderer
 - The poller and the renderer are two fs2 streams merged into one, so stopping the app cancels both.
+- The renderer threads its pause state through `evalMapAccumulate`, and reads time from `Clock`, so the whole engine runs on Cats Effect's simulated clock in tests (`TestControl`).
