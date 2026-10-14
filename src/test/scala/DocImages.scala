@@ -258,7 +258,7 @@ object DocImages {
     val cols = (seconds * 1000 / stepMs).toInt
     val colW = 720.0 / cols
     val cells = (0 until cols).flatMap { col =>
-      val frame = SyncEngine.pulseFrame(zone, p, bpm, (col * stepMs).toLong, settings)
+      val frame = SyncEngine.pulseFrame(zone, p, col * stepMs / beatMs, settings)
       frame.updates.map { u =>
         s"""<rect x="${fmt(left + col * colW)}" y="${fmt(top + u.id * rowH)}" width="${fmt(colW + 0.4)}" height="${fmt(rowH - 3)}" fill="${hex(u.color)}"/>"""
       }
@@ -317,7 +317,7 @@ object DocImages {
     val frames = (0 until cols).scanLeft((Renderer.initial, Option.empty[domain.hue.Frame])) { case ((state, _), col) =>
       val ms = col * stepMs
       if (ms < stopAt) {
-        val (next, f) = Renderer.playing(SyncEngine.pulseFrame(zone, p, bpm, ms.toLong, settings))
+        val (next, f) = Renderer.playing(SyncEngine.pulseFrame(zone, p, ms / beatMs, settings))
         (next, Some(f))
       } else {
         val (next, f) = Renderer.paused(state, ms.millis, zone, pause)

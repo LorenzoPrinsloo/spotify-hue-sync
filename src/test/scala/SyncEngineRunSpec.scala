@@ -1,5 +1,7 @@
 import cats.effect.{Deferred, IO, Ref}
+import beat.BeatState
 import cats.effect.testkit.TestControl
+import fs2.Stream
 import client.SpotifyClient
 import domain.config.*
 import domain.engine.{Palette, PaletteType, RGB}
@@ -35,7 +37,8 @@ class SyncEngineRunSpec extends CatsEffectSuite {
     show: LightShowConfig = LightShowConfig(),
     playingUntil: FiniteDuration = 1.hour,
     tempo: IO[Response[IO]] = Ok("""{ "tempo": 128.0 }"""),
-    seed: Long = 1L
+    seed: Long = 1L,
+    beats: Stream[IO, Option[BeatState]] = Stream.empty
   )
 
   private def engine(setup: Setup, tempoCalls: Ref[IO, Int]): IO[SyncEngine[IO]] =
@@ -49,7 +52,7 @@ class SyncEngineRunSpec extends CatsEffectSuite {
           tempoCalls.update(_ + 1) *> setup.tempo
       }.orNotFound
       spotify = new SpotifyClient[IO](Client.fromHttpApp(app), SpotifyCredentials("id", "secret", "refresh"), token, code)
-      built <- SyncEngine.make[IO](config(setup.show), spotify, zone, new Random(setup.seed))
+      built <- SyncEngine.make[IO](config(setup.show), spotify, zone, new Random(setup.seed), setup.beats)
     } yield built
 
   /** Every frame emitted in `duration` of simulated time, with the time it was emitted, plus the engine's view of the track. */
@@ -127,6 +130,72 @@ class SyncEngineRunSpec extends CatsEffectSuite {
       val distances = frames.collect { case (t, f) if t > 3100.millis => distance(f) }
       assert(distances.zip(distances.drop(1)).forall((a, b) => b <= a), "the lights should only move towards the resting colour")
       assert(afterFade.nonEmpty && afterFade.forall(isResting))
+    }
+  }
+
+  private val liveBeat = BeatState(bpm = 120, beatAt = 0.seconds, updatedAt = 0.seconds)
+
+  /** The frame the engine should show at `t` when it follows Spotify's position: polled every second, from 0 ms. */
+  private def spotifyFrame(t: FiniteDuration, show: TrackShow, settings: LightShowConfig): Frame = {
+    val receivedAt = (t.toMillis / 1000) * 1000
+    val positionMs = (t.toMillis - receivedAt) + settings.syncOffsetMs
+    SyncEngine.pulseFrame(zone, show.palette, SyncEngine.pulsesAt(positionMs, show.bpm), settings.pulse)
+  }
+
+  /** Frames while the track plays, skipping the instants where a poll and a frame coincide. */
+  private def playingFrames(frames: List[(FiniteDuration, Frame)]): List[(FiniteDuration, Frame)] =
+    frames.filter((t, _) => t > 1100.millis && t.toMillis % 1000 > 20)
+
+  test("with a live beat, the pulses follow it") {
+    val settings = LightShowConfig()
+    run(Setup(beats = Stream.emit(Some(liveBeat)) ++ Stream.never[IO]), 5.seconds).map { case (frames, show, _) =>
+      val checked = playingFrames(frames)
+      assert(checked.size > 100)
+      checked.foreach { (t, f) =>
+        val expected = SyncEngine.pulseFrame(zone, show.palette, liveBeat.beatsAt(t + settings.audio.offsetMs.millis), settings.pulse)
+        assertEquals(f.updates, expected.updates, s"at $t")
+      }
+    }
+  }
+
+  test("beats-per-pulse slows the pulse down relative to the live beat") {
+    val settings = LightShowConfig(beatsPerPulse = 2)
+    run(Setup(show = settings, beats = Stream.emit(Some(liveBeat)) ++ Stream.never[IO]), 4.seconds).map { case (frames, show, _) =>
+      playingFrames(frames).foreach { (t, f) =>
+        val expected = SyncEngine.pulseFrame(zone, show.palette, liveBeat.beatsAt(t + settings.audio.offsetMs.millis) / 2, settings.pulse)
+        assertEquals(f.updates, expected.updates, s"at $t")
+      }
+    }
+  }
+
+  test("without a live beat, the pulses follow Spotify's position at the track's tempo") {
+    val settings = LightShowConfig()
+    run(Setup(beats = Stream.emit(None) ++ Stream.never[IO]), 4.seconds).map { case (frames, show, _) =>
+      val checked = playingFrames(frames)
+      assert(checked.size > 100)
+      checked.foreach((t, f) => assertEquals(f.updates, spotifyFrame(t, show, settings).updates, s"at $t"))
+    }
+  }
+
+  test("when the beat is lost, the pulses switch back to Spotify timing") {
+    val settings = LightShowConfig()
+    val beats = Stream.emit(Some(liveBeat)) ++ Stream.sleep_[IO](3.seconds) ++ Stream.emit(None) ++ Stream.never[IO]
+    run(Setup(beats = beats), 6.seconds).map { case (frames, show, _) =>
+      playingFrames(frames).foreach { (t, f) =>
+        val expected =
+          if (t < 3.seconds) SyncEngine.pulseFrame(zone, show.palette, liveBeat.beatsAt(t + settings.audio.offsetMs.millis), settings.pulse)
+          else spotifyFrame(t, show, settings)
+        assertEquals(f.updates, expected.updates, s"at $t")
+      }
+    }
+  }
+
+  test("if beat detection fails, the show carries on with Spotify timing") {
+    val settings = LightShowConfig()
+    run(Setup(beats = Stream.raiseError[IO](new RuntimeException("no audio device"))), 4.seconds).map { case (frames, show, _) =>
+      val checked = playingFrames(frames)
+      assert(checked.size > 100)
+      checked.foreach((t, f) => assertEquals(f.updates, spotifyFrame(t, show, settings).updates, s"at $t"))
     }
   }
 }

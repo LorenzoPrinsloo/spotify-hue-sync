@@ -20,8 +20,25 @@ case class PauseSettings(
   fadeOutMs: Long = 2000
 )
 
+/** Where the pulse timing comes from: Spotify's playback position, or the beat detected in live audio. */
+enum BeatSource:
+  case Spotify, Audio
+
+/**
+ * Live beat detection. `device` is matched against input names (e.g. "BlackHole"); `offsetMs` shifts the lights
+ * relative to the detected beat, positive being earlier, to make up for capture and bridge latency.
+ */
+case class AudioSettings(
+  device: String = "BlackHole",
+  offsetMs: Long = 100,
+  minBpm: Double = 60,
+  maxBpm: Double = 180
+)
+
 case class LightShowConfig(
   palette: PaletteType = PaletteType.Analogous,
+  beatSource: BeatSource = BeatSource.Spotify,
+  audio: AudioSettings = AudioSettings(),
   defaultBpm: Double = 20.0,
   beatsPerPulse: Double = 1.0,
   syncOffsetMs: Long = -150,
@@ -42,7 +59,9 @@ object LightShowConfig {
     Option.when(p.attack + p.sustain >= 1)("pulse.attack + pulse.sustain must be less than 1"),
     Option.when(p.decayCurve <= 0)("pulse.decay-curve must be positive"),
     Option.when(p.restLevel < 0 || p.peakBoost < 0)("pulse.rest-level and pulse.peak-boost can't be negative"),
-    Option.when(c.pause.fadeOutMs < 0)("pause.fade-out-ms can't be negative")
+    Option.when(c.pause.fadeOutMs < 0)("pause.fade-out-ms can't be negative"),
+    Option.when(c.audio.minBpm <= 0 || c.audio.maxBpm <= c.audio.minBpm)("audio.min-bpm must be positive and below audio.max-bpm"),
+    Option.when(c.audio.device.trim.isEmpty)("audio.device can't be empty")
     ).flatten
     if (problems.isEmpty) Right(c) else Left(problems.mkString("; "))
   }
@@ -51,12 +70,18 @@ object LightShowConfig {
     PaletteType.parse(name).toRight(CannotConvert(name, "PaletteType", s"expected one of ${PaletteType.names.keys.toList.sorted.mkString(", ")}"))
   }
 
+  given ConfigReader[BeatSource] = ConfigReader[String].emap { name =>
+    BeatSource.values.find(_.toString.equalsIgnoreCase(name.trim))
+      .toRight(CannotConvert(name, "BeatSource", "expected spotify or audio"))
+  }
+
   given ConfigReader[RGB] = ConfigReader[String].emap { hex =>
     RGB.fromHex(hex).toRight(CannotConvert(hex, "RGB", "expected a colour like #1e1408"))
   }
 
   given ConfigReader[PulseSettings] = ConfigReader.derived[PulseSettings]
   given ConfigReader[PauseSettings] = ConfigReader.derived[PauseSettings]
+  given ConfigReader[AudioSettings] = ConfigReader.derived[AudioSettings]
 
   given ConfigReader[LightShowConfig] = ConfigReader.derived[LightShowConfig].emap { c =>
     validate(c).left.map(reason => CannotConvert("light-show", "LightShowConfig", reason))

@@ -1,5 +1,6 @@
 import cats.effect.*
 import cats.syntax.all.*
+import beat.BeatState
 import client.SpotifyClient
 import fs2.Stream
 import domain.config.{AppConfig, PulseSettings}
@@ -20,7 +21,8 @@ class SyncEngine[F[_]: Async] private (
                                zone: Zone,
                                spotify: SpotifyClient[F],
                                tracks: Ref[F, Map[TrackId, TrackShow]],
-                               random: Random
+                               random: Random,
+                               beats: Stream[F, Option[BeatState]]
                              ):
 
   private val logger: SelfAwareStructuredLogger[F] = Slf4jLogger.getLogger[F]
@@ -50,8 +52,19 @@ class SyncEngine[F[_]: Async] private (
         } yield chosen
     }
 
+  /** Keeps `beatRef` up to date with the live beat, logging when it locks on or loses it; stops quietly on failure. */
+  private def followBeats(beatRef: Ref[F, Option[BeatState]]): Stream[F, Nothing] =
+    beats
+      .evalTap {
+        case Some(b) => beatRef.get.flatMap(prev => logger.info(f"Locked onto the beat at ${b.bpm}%.1f BPM").whenA(prev.isEmpty))
+        case None    => beatRef.get.flatMap(prev => logger.info("Lost the beat; using Spotify timing until it's back").whenA(prev.isDefined))
+      }
+      .evalMap(beatRef.set)
+      .handleErrorWith(err => Stream.eval(logger.warn(s"Beat detection stopped, using Spotify timing instead: ${err.getMessage}")))
+      .drain
+
   def run: Stream[F, Frame] =
-    Stream.eval(SignallingRef[F, Option[LocalPlayback]](None)).flatMap { stateRef =>
+    Stream.eval((SignallingRef[F, Option[LocalPlayback]](None), Ref.of[F, Option[BeatState]](None)).tupled).flatMap { (stateRef, beatRef) =>
 
       val poller = Stream.awakeEvery[F](config.pollingIntervalMs.millis)
         .evalMap { _ =>
@@ -66,39 +79,56 @@ class SyncEngine[F[_]: Async] private (
         .evalMap(_ => stateRef.get)
         .evalMapAccumulate(Renderer.initial) { (rendered, playback) =>
           playback.filter(_.state.isPlaying) match {
-            case Some(local) => playingFrame(local).map(Renderer.playing)
+            case Some(local) => playingFrame(local, beatRef).map(Renderer.playing)
             case None        => Clock[F].monotonic.map(now => Renderer.paused(rendered, now, zone, show.pause))
           }
         }
         .map(_._2)
 
-      renderer.merge(poller.drain)
+      renderer.merge(poller.drain).merge(followBeats(beatRef))
         .zipWithIndex
         .map((frame, i) => frame.copy(sequence = (i % 256).toInt))
     }
 
-  /** The frame for the current moment of a playing track. */
-  private def playingFrame(local: LocalPlayback): F[Frame] =
+  /**
+   * The frame for the current moment of a playing track. With a live beat, pulses follow it; otherwise they follow
+   * Spotify's playback position at the track's tempo.
+   */
+  private def playingFrame(local: LocalPlayback, beatRef: Ref[F, Option[BeatState]]): F[Frame] =
     for {
       track <- showFor(local.state.trackId)
+      beat <- beatRef.get
+      monotonic <- Clock[F].monotonic
       now <- Clock[F].realTimeInstant
-      latencyMs = java.time.Duration.between(local.receivedAt, now).toMillis
-      positionMs = local.state.progress.toMillis + latencyMs + show.syncOffsetMs
-    } yield SyncEngine.pulseFrame(zone, track.palette, track.bpm, positionMs, show.pulse)
+      pulses = beat match {
+        case Some(b) => b.beatsAt(monotonic + show.audio.offsetMs.millis) / show.beatsPerPulse
+        case None =>
+          val latencyMs = java.time.Duration.between(local.receivedAt, now).toMillis
+          SyncEngine.pulsesAt(local.state.progress.toMillis + latencyMs + show.syncOffsetMs, track.bpm)
+      }
+    } yield SyncEngine.pulseFrame(zone, track.palette, pulses, show.pulse)
 
 object SyncEngine:
 
-  def make[F[_]: Async](config: AppConfig, spotify: SpotifyClient[F], zone: Zone, random: Random = new Random()): F[SyncEngine[F]] =
-    Ref.of[F, Map[TrackId, TrackShow]](Map.empty).map(new SyncEngine[F](config, zone, spotify, _, random))
+  def make[F[_]: Async](
+    config: AppConfig,
+    spotify: SpotifyClient[F],
+    zone: Zone,
+    random: Random = new Random(),
+    beats: Stream[F, Option[BeatState]] = Stream.empty
+  ): F[SyncEngine[F]] =
+    Ref.of[F, Map[TrackId, TrackShow]](Map.empty).map(new SyncEngine[F](config, zone, spotify, _, random, beats))
+
+  /** Pulses elapsed at a playback position, pulsing at `bpm`. */
+  def pulsesAt(positionMs: Long, bpm: Double): Double = positionMs * bpm / 60000.0
 
   /**
-   * One frame of the pulse for every channel in the zone. Light i takes palette colour i and starts its
-   * pulse `stagger` of a beat after light i - 1, so the pulse travels across the zone as a wave.
+   * One frame of the pulse for every channel in the zone, `pulses` pulses into the music. Light i takes palette
+   * colour i and starts its pulse `stagger` of a pulse after light i - 1, so the pulse travels across the zone.
    */
-  def pulseFrame(zone: Zone, palette: Palette, bpm: Double, positionMs: Long, settings: PulseSettings): Frame = {
-    val beats = positionMs / (60000.0 / bpm)
+  def pulseFrame(zone: Zone, palette: Palette, pulses: Double, settings: PulseSettings): Frame = {
     val updates = zone.channels.zipWithIndex.map { (channel, i) =>
-      val level = Pulse.level(beats - i * settings.stagger, settings)
+      val level = Pulse.level(pulses - i * settings.stagger, settings)
       LightUpdate(channel, palette.getColor(i).scaleBrightness(Pulse.brightness(level, settings)))
     }
     Frame(zone.id, updates)

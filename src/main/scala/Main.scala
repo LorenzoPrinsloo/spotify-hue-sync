@@ -4,13 +4,15 @@ import cats.effect.kernel.Resource
 import fs2.Stream
 import client.{CachedSpotifyClient, DtlsEmitter, HueClient}
 import cats.implicits.*
-import domain.config.AppConfig
+import beat.BeatTracking
+import domain.config.{AppConfig, BeatSource}
 import domain.hue.Zone
 import fs2.io.net.tls.TLSContext
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 import org.http4s.ember.client.EmberClientBuilder
 import org.http4s.client.middleware.FollowRedirect
 object Main extends IOApp {
+  private val logger = Slf4jLogger.getLogger[IO]
   
   override def run(args: List[String]): IO[ExitCode] = {
     val resources = for {
@@ -23,7 +25,12 @@ object Main extends IOApp {
       emitter = new DtlsEmitter[IO](config.hue.creds)
 
       channels <- Resource.eval(hueClient.getChannels(config.hue.zoneId))
-      engine <- Resource.eval(SyncEngine.make[IO](config, spotify, Zone(config.hue.zoneId, channels)))
+      beats = config.lightShow.beatSource match {
+        case BeatSource.Audio   => BeatTracking.beats[IO](config.lightShow.audio)
+        case BeatSource.Spotify => fs2.Stream.empty
+      }
+      _ <- Resource.eval(logger.info(s"Listening for the beat on '${config.lightShow.audio.device}'. If it never locks on, check that music is playing through it and that your terminal has microphone access.").whenA(config.lightShow.beatSource == BeatSource.Audio))
+      engine <- Resource.eval(SyncEngine.make[IO](config, spotify, Zone(config.hue.zoneId, channels), beats = beats))
     } yield (config, hueClient, emitter, engine)
 
     resources.use { case (config, hueClient, emitter, engine) =>

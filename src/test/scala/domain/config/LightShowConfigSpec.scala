@@ -63,7 +63,7 @@ class LightShowConfigSpec extends FunSuite {
     invalid.foreach(c => assert(load(c).isLeft, c))
   }
 
-  test("the shipped application.conf loads with the documented defaults") {
+  test("the shipped application.conf loads, with the beat taken from audio") {
     val shipped = scala.io.Source.fromResource("application.conf").mkString
     val values = Map(
       "SPOTIFY_CLIENT_ID" -> "id", "SPOTIFY_CLIENT_SECRET" -> "secret", "SPOTIFY_REFRESH_TOKEN" -> "r",
@@ -71,11 +71,24 @@ class LightShowConfigSpec extends FunSuite {
     )
     val resolved = values.foldLeft(shipped)((acc, kv) => acc.replace("${" + kv._1 + "}", "\"" + kv._2 + "\""))
     val result = ConfigSource.string(resolved).withFallback(reference).load[AppConfig].left.map(_.prettyPrint())
-    assertEquals(result.map(_.lightShow), Right(LightShowConfig()))
+    assertEquals(result.map(_.lightShow), Right(LightShowConfig(beatSource = BeatSource.Audio)))
     assertEquals(result.map(_.pollingIntervalMs), Right(1000))
   }
 
   test("analogous-complementary orders are both configurable") {
     assertEquals(load("""light-show.palette = "analogous-complementary-interspersed"""").map(_.lightShow.palette), Right(PaletteType.AnalogousComplementary(Order.Interspersed)))
+  }
+
+  test("the beat source and audio input can be configured") {
+    val show = load("light-show.beat-source = \"audio\"\nlight-show.audio.device = \"Loopback\"\nlight-show.audio.offset-ms = 40").map(_.lightShow)
+    assertEquals(show.map(_.beatSource), Right(BeatSource.Audio))
+    assertEquals(show.map(_.audio), Right(AudioSettings(device = "Loopback", offsetMs = 40)))
+    assertEquals(load().map(_.lightShow.beatSource), Right(BeatSource.Spotify))
+  }
+
+  test("an unknown beat source or an impossible tempo range is rejected") {
+    assert(load("light-show.beat-source = \"microphone\"").isLeft)
+    assert(load("light-show.audio.min-bpm = 150\nlight-show.audio.max-bpm = 100").isLeft)
+    assert(load("light-show.audio.device = \" \"").isLeft)
   }
 }
