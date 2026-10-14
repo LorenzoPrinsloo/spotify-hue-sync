@@ -159,6 +159,8 @@ A frame for seven lights is therefore 52 + 7 × 7 = 101 bytes. The colour engine
 
 ## Known limitations
 
+The [roadmap](roadmap.md) tracks fixes for these.
+
 - **No token refresh.** The access token is never refreshed, and the configured refresh token isn't used yet. When the token expires (Spotify tokens last about an hour), polls come back unauthorised and are treated as "nothing playing", so the lights stop until the app is restarted.
 - **Fixed tempo.** Every track pulses at 20 BPM. The client can fetch Spotify's track analysis (and caches it per track), but the engine doesn't use it yet.
 - **Fixed zone size.** Frames always address seven light channels.

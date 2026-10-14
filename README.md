@@ -10,6 +10,7 @@ Built with Scala 3, Cats Effect, fs2 and http4s.
 
 - [Architecture](docs/architecture.md): components, packages and main types, with diagrams
 - [How it works](docs/how-it-works.md): Spotify sign-in, the polling and rendering loops, the colour engine and colour theory, the pulse animation and the Hue streaming protocol
+- [Roadmap](docs/roadmap.md): what's still to do
 
 ## Configuration
 
