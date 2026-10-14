@@ -53,4 +53,26 @@ class PaletteSpec extends ScalaCheckSuite {
       assertEquals(generate(mode, 42L), None)
     }
   }
+
+  property("a flat palette lists the base triad, then the complement's triad") {
+    forAll { (seed: Long) =>
+      generate(PaletteType.AnalogousComplementary(Order.Flat), seed).exists { p =>
+        p.colors(1).compliment == Some(p.colors(4))
+      }
+    }
+  }
+
+  property("an interspersed palette alternates between the two triads") {
+    forAll { (seed: Long) =>
+      generate(PaletteType.AnalogousComplementary(Order.Interspersed), seed).exists { p =>
+        p.colors(2).compliment == Some(p.colors(3))
+      }
+    }
+  }
+
+  test("getColor is 1-based: index 1 is the first colour and index 0 wraps to the last") {
+    val palette = generate(PaletteType.AnalogousComplementary(Order.Flat), 7L).get
+    assertEquals(palette.getColor(1), palette.colors.head)
+    assertEquals(palette.getColor(0), palette.colors.last)
+  }
 }

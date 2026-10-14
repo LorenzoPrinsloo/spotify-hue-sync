@@ -2,8 +2,9 @@ package domain.engine
 
 import munit.ScalaCheckSuite
 import org.scalacheck.{Arbitrary, Gen}
-import org.scalacheck.Prop.forAll
+import org.scalacheck.Prop.{forAll, propBoolean}
 import scodec.Codec
+import java.awt.Color.RGBtoHSB
 
 class RGBSpec extends ScalaCheckSuite {
 
@@ -45,6 +46,33 @@ class RGBSpec extends ScalaCheckSuite {
     forAll { (c: RGB) =>
       val codec = summon[Codec[RGB]]
       codec.encode(c).flatMap(codec.decodeValue).toOption == Some(c)
+    }
+  }
+
+  private def hue(c: RGB): Double = RGBtoHSB(c.r.value, c.g.value, c.b.value, null)(0).toDouble
+
+  private def hueDistance(a: Double, b: Double): Double = {
+    val d = math.abs(a - b)
+    math.min(d, 1.0 - d)
+  }
+
+  private def spread(c: RGB): Int = c.toVector.max - c.toVector.min
+
+  property("a complement sits on the opposite side of the colour wheel") {
+    forAll { (c: RGB) =>
+      spread(c) >= 30 ==> c.compliment.exists(o => math.abs(hueDistance(hue(c), hue(o)) - 0.5) < 0.005)
+    }
+  }
+
+  property("analogous neighbours are 30 degrees either side of the base hue") {
+    forAll { (c: RGB) =>
+      spread(c) >= 60 ==> {
+        val List(left, _, right) = c.analogous: @unchecked
+        val thirtyDegrees = 30.0 / 360.0
+        val tolerance = 2.0 / 360.0
+        math.abs(hueDistance(hue(left), hue(c)) - thirtyDegrees) < tolerance &&
+          math.abs(hueDistance(hue(right), hue(c)) - thirtyDegrees) < tolerance
+      }
     }
   }
 }
