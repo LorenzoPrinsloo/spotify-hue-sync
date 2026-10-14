@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="185" viewBox="0 0 600 185" font-family="Helvetica, Arial, sans-serif">
+<rect width="600" height="185" fill="#ffffff"/>
+<text x="20.00" y="30.00" font-size="15" text-anchor="start" font-weight="bold" fill="#333">How an analogous palette [c1, c2, c3] is spread over seven lights</text>
+<circle cx="60" cy="95" r="26" fill="#dca028" stroke="#333"/>
+<text x="60.00" y="145.00" font-size="12" text-anchor="middle" font-weight="bold" fill="#333">light 0</text>
+<text x="60.00" y="162.00" font-size="12" text-anchor="middle" font-weight="normal" fill="#777">c3</text>
+<circle cx="140" cy="95" r="26" fill="#dc2864" stroke="#333"/>
+<text x="140.00" y="145.00" font-size="12" text-anchor="middle" font-weight="bold" fill="#333">light 1</text>
+<text x="140.00" y="162.00" font-size="12" text-anchor="middle" font-weight="normal" fill="#777">c1</text>
+<circle cx="220" cy="95" r="26" fill="#dc4628" stroke="#333"/>
+<text x="220.00" y="145.00" font-size="12" text-anchor="middle" font-weight="bold" fill="#333">light 2</text>
+<text x="220.00" y="162.00" font-size="12" text-anchor="middle" font-weight="normal" fill="#777">c2</text>
+<circle cx="300" cy="95" r="26" fill="#dca028" stroke="#333"/>
+<text x="300.00" y="145.00" font-size="12" text-anchor="middle" font-weight="bold" fill="#333">light 3</text>
+<text x="300.00" y="162.00" font-size="12" text-anchor="middle" font-weight="normal" fill="#777">c3</text>
+<circle cx="380" cy="95" r="26" fill="#dc2864" stroke="#333"/>
+<text x="380.00" y="145.00" font-size="12" text-anchor="middle" font-weight="bold" fill="#333">light 4</text>
+<text x="380.00" y="162.00" font-size="12" text-anchor="middle" font-weight="normal" fill="#777">c1</text>
+<circle cx="460" cy="95" r="26" fill="#dc4628" stroke="#333"/>
+<text x="460.00" y="145.00" font-size="12" text-anchor="middle" font-weight="bold" fill="#333">light 5</text>
+<text x="460.00" y="162.00" font-size="12" text-anchor="middle" font-weight="normal" fill="#777">c2</text>
+<circle cx="540" cy="95" r="26" fill="#dca028" stroke="#333"/>
+<text x="540.00" y="145.00" font-size="12" text-anchor="middle" font-weight="bold" fill="#333">light 6</text>
+<text x="540.00" y="162.00" font-size="12" text-anchor="middle" font-weight="normal" fill="#777">c3</text>
+</svg>

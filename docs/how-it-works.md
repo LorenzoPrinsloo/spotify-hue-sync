@@ -70,6 +70,14 @@ flowchart TB
 
 Both relationships are checked by property tests: analogous neighbours sit 30° either side of the base hue, and a complement's hue is 180° away.
 
+On the colour wheel, an **analogous** palette is a tight cluster of neighbours, which gives a calm, cohesive look:
+
+![Analogous palette on the colour wheel](images/palette-analogous.svg)
+
+A **complementary** palette sits on opposite sides of the wheel, which gives the strongest contrast:
+
+![Complementary palette on the colour wheel](images/palette-complementary.svg)
+
 ### Palettes
 
 `Palette.random(mode)` picks a random base colour and builds a palette from it:
@@ -82,6 +90,10 @@ Both relationships are checked by property tests: analogous neighbours sit 30° 
 | `AnalogousComplementary(Interspersed)` | the two triads interleaved, alternating base and complement |
 | `Monochromatic`, `Triadic`, `Tetradic` | declared but not implemented yet; they return no palette |
 
+**Analogous-complementary** combines the two: the base triad on one side of the wheel and the complement's triad opposite it. `Order` only changes the sequence, and so which lights get which colour:
+
+![Analogous-complementary palette in flat and interspersed order](images/palette-analogous-complementary.svg)
+
 A palette is generated the first time a track is seen and cached in a `Ref` for the rest of that track, so the colours stay stable while a song plays.
 
 ### Assigning colours to lights
@@ -91,6 +103,8 @@ A palette is generated the first time a track is seen and cached in a `Ref` for 
 | Light | 0 | 1 | 2 | 3 | 4 | 5 | 6 |
 |---|---|---|---|---|---|---|---|
 | Colour | c3 | c1 | c2 | c3 | c1 | c2 | c3 |
+
+![Seven lights coloured from a three-colour analogous palette](images/light-mapping.svg)
 
 ## 4. The pulse
 
@@ -104,11 +118,19 @@ Each beat has three phases:
 | 20% to 30% | sustain | holds at 1 |
 | 30% to 100% | decay | falls as `(1 - x)²`, a soft fade that lingers |
 
+![The pulse envelope over one beat: attack, sustain and decay](images/pulse-envelope.svg)
+
 The curve value `p` becomes a brightness multiplier of `0.15 + 2.5 × p`:
 - at rest, a light glows at 15% of its palette colour
 - at the peak, its colour is boosted 2.65×, and channels are capped at 255, so bright colours wash out towards white at the peak
 
 **The wave.** Each light starts its pulse 0.15 of a beat after the one before, so the pulse travels across the zone instead of flashing all lights at once.
+
+![Each light's brightness over two beats, offset by 0.15 of a beat per light](images/pulse-wave.svg)
+
+Put together, this is what the seven lights show over two beats. You can see the wave travel down the zone, and the colours wash out towards yellow and light pink at each peak, where the 2.65× boost hits the 255 cap:
+
+![The actual colour of each light over two beats](images/pulse-timeline.svg)
 
 The pulse is computed by the pure function `SyncEngine.pulseFrame`, which makes it straightforward to test: the tests check the brightness at rest and at the peak, the 0.15-beat delay between lights, and that every value stays between 0 and 255.
 
@@ -141,3 +163,11 @@ A frame for seven lights is therefore 52 + 7 × 7 = 101 bytes. The colour engine
 - **Fixed tempo.** Every track pulses at 20 BPM. The client can fetch Spotify's track analysis (and caches it per track), but the engine doesn't use it yet.
 - **Fixed zone size.** Frames always address seven light channels.
 - **Certificate checks are off.** The Hue bridge serves a self-signed certificate, so the app's HTTP client is built without certificate verification. That client is shared, so Spotify calls skip verification too. A separate client for the bridge would keep verification on for Spotify.
+
+## Regenerating the images
+
+The images on this page are drawn from the app's own code (`Palette.random`, `RGB` and `SyncEngine.pulseFrame`), so they stay accurate when the engine changes. To redraw them:
+
+```sh
+sbt "Test/runMain DocImages"
+```
