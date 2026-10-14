@@ -17,6 +17,7 @@ flowchart LR
         SE[SyncEngine]
         PAL[Palette / RGB / Pulse<br/>colour engine]
         REN[Renderer<br/>pause fade]
+        BT[BeatTracker<br/>live beat]
         HC[HueClient]
         DE[DtlsEmitter]
     end
@@ -33,6 +34,8 @@ flowchart LR
     SE -- getPlaybackState --> SC
     SE -- palette and pulse --> PAL
     SE -- when paused --> REN
+    BH[BlackHole<br/>audio input] --> BT
+    BT -- tempo and beat time --> SE
     SE -- frames --> DE
     HC -- read channels, start / stop streaming --> CLIP
     DE -- DTLS PSK packets --> ENT
@@ -44,6 +47,8 @@ flowchart LR
 |---|---|
 | (root) | `Main`, which wires everything together, and `SyncEngine`, which turns playback state into light frames |
 | `client` | Everything that talks to the outside world: `SpotifyClient`, `CachedSpotifyClient`, `HueClient` and `DtlsEmitter` |
+| `audio` | `AudioInput`: captures audio from an input device such as BlackHole |
+| `beat` | Live beat detection: `Fft`, `OnsetDetector`, `BeatTracker`, `BeatState` and the `BeatTracking` stream |
 | `domain.config` | `AppConfig`, `HueConfig` and `LightShowConfig` (with `PulseSettings` and `PauseSettings`), loaded with pureconfig from `application.conf` on top of the defaults in `reference.conf` |
 | `domain.engine` | The colour engine and animation: `RGB`, `Palette`, `PaletteType`, `Order`, `Pulse` (the envelope), `Renderer` (the pause fade) and `LocalPlayback` |
 | `domain.hue` | The Hue streaming protocol: `Zone`, `Frame`, `LightUpdate` and their binary codecs |

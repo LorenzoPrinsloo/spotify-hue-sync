@@ -17,7 +17,8 @@ What's still to do, roughly in priority order. Tick items off as they land.
 ## Light show
 
 - [ ] **Colours from the album cover.** `PlaybackState` already decodes `albumCoverUrl` but nothing uses it. Picking the base colour from the cover art would tie the lights to the music.
-- [ ] **Align pulses to the downbeat.** Pulses follow the track's tempo but are counted from the start of the track, so they can be offset from the actual beats. Spotify's audio analysis has beat timestamps, if the app is allowed to use it.
+- [ ] **Find the downbeat.** Live beat detection lands every pulse on a beat, but doesn't know which beat starts the bar. Accenting beat one would make the show feel more musical.
+- [ ] **Tune the audio offset automatically,** by measuring the round trip from capture to the lights instead of setting `audio.offset-ms` by hand.
 - [ ] **Order the wave by position.** The bridge reports each channel's position in the room; sorting by it would make the wave travel left to right instead of by channel ID.
 
 ## Code health
@@ -28,6 +29,8 @@ What's still to do, roughly in priority order. Tick items off as they land.
 - [ ] **Package the app,** for example as a Docker image, so it can run on a home server or Raspberry Pi.
 
 ## Done
+
+- [x] Live beat detection from audio (BlackHole), with Spotify timing as the fallback
 
 - [x] Pulse to the track's real tempo, with a configurable fallback and beats-per-pulse
 - [x] Monochromatic, triadic and tetradic palettes

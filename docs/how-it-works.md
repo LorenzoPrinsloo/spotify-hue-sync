@@ -128,11 +128,45 @@ At startup the app asks the bridge which channels the entertainment zone has (`G
 
 ## 4. The pulse
 
-### Tempo
+### Timing: live beat or Spotify
+
+With `beat-source = "audio"`, the pulses follow the beat detected live from your audio (see [Live beat detection](#live-beat-detection)). While the tracker hasn't locked on, or with `beat-source = "spotify"`, they follow Spotify's playback position at the track's tempo, as described next.
+
+### Tempo from Spotify
 
 When a new track starts, the app asks Spotify for its tempo (`GET /v1/audio-features/{id}`) and pulses in time with it. Spotify restricted this endpoint for newer apps in late 2024; if it refuses, or the request fails, the app uses `default-bpm` (20 BPM, one pulse every 3 seconds) instead. The tempo is fetched once per track and cached.
 
 `beats-per-pulse` slows fast tracks down: `2` pulses on every other beat, so a 128 BPM track pulses at 64 BPM.
+
+### Live beat detection
+
+Spotify's tempo isn't enough to land on the beat: it says how fast, not where the beats fall, and it isn't available to newer apps. So the app can listen to the music itself, through a virtual audio device such as [BlackHole](https://github.com/ExistentialAudio/BlackHole).
+
+```mermaid
+flowchart LR
+    A[BlackHole input<br/>44.1 kHz] --> B[512-sample frames]
+    B --> C[Onset strength<br/>spectral flux]
+    C --> D[Last 8 seconds<br/>of onsets]
+    D --> E[Score every beat grid<br/>60-180 BPM]
+    E --> F[Tempo and beat time]
+    F --> G[Pulses land on the beat]
+```
+
+1. **Capture.** `AudioInput` reads 16-bit stereo audio from the input named in `audio.device` and mixes it to mono, 512 samples (about 12 ms) at a time.
+2. **Onsets.** For each frame, `OnsetDetector` takes a 1024-sample FFT and measures how much louder each frequency got since the last frame (spectral flux). Kicks and note attacks make it spike. Frequencies below about 300 Hz count most, because the kick and bass usually carry the beat while hi-hats fill in between.
+3. **Tempo and phase.** Four times a second, `BeatTracker` tries every beat grid between `min-bpm` and `max-bpm` against the last 8 seconds of onsets, and keeps the grid whose beats land on the strongest onsets. Grids that skip beats are penalised, and tempos far from 120 BPM are slightly less likely, which settles most double-or-half ambiguities. The winning grid gives both the tempo and the time of the latest beat.
+4. **Pulsing.** Each frame, the engine works out how many beats have passed since that beat, shifted by `audio.offset-ms` to make up for capture and bridge latency, and divides by `beats-per-pulse`.
+
+When the music goes quiet the tracker lets go of the beat, and the show falls back to Spotify timing until it locks on again. If the audio device can't be opened, the app logs why and carries on with Spotify timing.
+
+The tracker is tested against generated drum patterns: it finds the exact tempo between 90 and 150 BPM, finds the tempo or exactly double or half of it between 72 and 170 BPM, and lines its beats up with the real ones to within 30 ms. It also handles silence, a change of tempo, and off-beat hi-hats. It runs over 100 times faster than real time.
+
+#### Setting up BlackHole on macOS
+
+1. Install it: `brew install blackhole-2ch` (it asks for your password).
+2. Open **Audio MIDI Setup**, click **+**, choose **Create Multi-Output Device**, and tick both your speakers (or headphones) and **BlackHole 2ch**. This lets you hear the music while the app listens to it.
+3. Choose that Multi-Output Device as your Mac's sound output.
+4. Set `light-show.beat-source = "audio"`. The first time the app listens, macOS may ask for microphone access for your terminal: allow it, or the app only hears silence.
 
 ### Shape
 
@@ -216,6 +250,10 @@ light-show {
 | Setting | Default | What it does |
 |---|---|---|
 | `palette` | `analogous` | Palette type (see [Palettes](#palettes)) |
+| `beat-source` | `spotify` | `audio` to follow the live beat, `spotify` to follow playback position and tempo |
+| `audio.device` | `BlackHole` | Audio input to listen to, matched by name |
+| `audio.offset-ms` | `100` | Shifts the lights relative to the detected beat; positive is earlier |
+| `audio.min-bpm`, `audio.max-bpm` | `60`, `180` | Tempo range the beat tracker searches |
 | `default-bpm` | `20` | Tempo used when Spotify can't provide one |
 | `beats-per-pulse` | `1` | Pulse once every N beats |
 | `sync-offset-ms` | `-150` | Shifts the lights relative to the audio |
@@ -236,7 +274,8 @@ The config is validated when the app starts: an unknown palette name, an invalid
 The [roadmap](roadmap.md) tracks fixes for these.
 
 - **No token refresh.** The access token is never refreshed, and the configured refresh token isn't used yet. When the token expires (Spotify tokens last about an hour), polls come back unauthorised and are treated as "nothing playing", so the lights fade to rest until the app is restarted.
-- **Pulses aren't aligned to the downbeat.** The tempo sets how fast the lights pulse, but pulses are counted from the start of the track, so they can be offset from the music's actual beats. `sync-offset-ms` shifts them by hand.
+- **Spotify timing isn't aligned to the beat.** Without live beat detection, pulses are counted from the start of the track at Spotify's tempo (or the default), so they can be offset from the actual beats. Use `beat-source = "audio"` for real beat sync.
+- **The beat tracker can count double or half time** on very slow or very fast music, which is a common ambiguity. `audio.min-bpm` and `audio.max-bpm` narrow the range.
 - **Certificate checks are off.** The Hue bridge serves a self-signed certificate, so the app's HTTP client is built without certificate verification. That client is shared, so Spotify calls skip verification too. A separate client for the bridge would keep verification on for Spotify.
 
 ## Regenerating the images

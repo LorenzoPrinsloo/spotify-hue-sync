@@ -2,7 +2,7 @@
 
 Syncs what's playing on Spotify to Philips Hue lights in real time.
 
-It polls Spotify for the current track, pulses in time with its tempo using a colour palette built from colour theory (analogous, complementary, triadic, tetradic or monochromatic), and streams light frames to a Hue entertainment zone over DTLS. When the music stops, the lights fade to a resting colour.
+It polls Spotify for the current track, pulses on the beat (detected live from your audio, or from Spotify's tempo) using a colour palette built from colour theory (analogous, complementary, triadic, tetradic or monochromatic), and streams light frames to a Hue entertainment zone over DTLS. When the music stops, the lights fade to a resting colour.
 
 Built with Scala 3, Cats Effect, fs2 and http4s.
 
@@ -27,7 +27,9 @@ Credentials are read from environment variables. Copy `.env.example` to `.env`, 
 | `HUE_PSK` | Hue entertainment client key |
 | `HUE_ZONE_ID` | ID of the entertainment zone to sync |
 
-The light show (palette type, tempo fallback, pulse shape, resting colour and more) is configured under `light-show`. The defaults and a description of each setting are in `src/main/resources/reference.conf`; override them in `application.conf`. See [How it works: Configuration](docs/how-it-works.md#7-configuration).
+To pulse on the actual beat, route your audio through [BlackHole](https://github.com/ExistentialAudio/BlackHole) and set `light-show.beat-source = "audio"`; the app then detects the beat live (see [Live beat detection](docs/how-it-works.md#live-beat-detection) for setup).
+
+The light show (palette type, beat source, pulse shape, resting colour and more) is configured under `light-show`. The defaults and a description of each setting are in `src/main/resources/reference.conf`; override them in `application.conf`. See [How it works: Configuration](docs/how-it-works.md#7-configuration).
 
 ## Running
 
@@ -42,4 +44,4 @@ sbt run
 sbt test
 ```
 
-Property-based tests (munit + ScalaCheck) cover the colour theory, every palette type, the pulse envelope, the pause fade, config loading and validation, and the Hue packet format. The Spotify and Hue clients are tested against fake HTTP servers, and the whole engine runs against a fake Spotify on Cats Effect's simulated clock.
+Property-based tests (munit + ScalaCheck) cover the colour theory, every palette type, the pulse envelope, the beat tracker (against generated drum patterns), the pause fade, config loading and validation, and the Hue packet format. The Spotify and Hue clients are tested against fake HTTP servers, and the whole engine runs against a fake Spotify on Cats Effect's simulated clock.
