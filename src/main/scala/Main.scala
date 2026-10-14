@@ -1,0 +1,40 @@
+import cats.effect.*
+import cats.effect.{ExitCode, IOApp}
+import cats.effect.kernel.Resource
+import fs2.Stream
+import client.{CachedSpotifyClient, DtlsEmitter, HueClient}
+import cats.implicits.*
+import domain.config.AppConfig
+import fs2.io.net.tls.TLSContext
+import org.typelevel.log4cats.slf4j.Slf4jLogger
+import org.http4s.ember.client.EmberClientBuilder
+import org.http4s.client.middleware.FollowRedirect
+object Main extends IOApp {
+  
+  override def run(args: List[String]): IO[ExitCode] = {
+    val resources = for {
+      config <- Resource.eval(AppConfig.load[IO])
+      tlsContext <- Resource.eval(TLSContext.Builder.forAsync[IO].insecure)
+      httpClient <- EmberClientBuilder.default[IO].withTLSContext(tlsContext).build.map {c => FollowRedirect(2)(c)}
+
+      spotify <- CachedSpotifyClient.resource[IO](httpClient, config.spotify)
+      hueClient = new HueClient[IO](config.hue.creds, httpClient)
+      emitter = new DtlsEmitter[IO](config.hue.creds)
+
+      engine <- Resource.eval(SyncEngine.make[IO](config, spotify))
+    } yield (config, hueClient, emitter, engine)
+
+    resources.use { case (config, hueClient, emitter, engine) =>
+      for {
+        _ <- hueClient.setStreaming(config.hue.zoneId, active = true)
+        _ <- Stream.resource(emitter.resource).flatMap { connector =>
+            engine.run.evalMap(frame => emitter.send(connector, frame))
+          }
+          .onFinalize(hueClient.setStreaming(config.hue.zoneId, active = false))
+          .compile
+          .drain
+
+      } yield ExitCode.Success
+    }
+  }
+}
