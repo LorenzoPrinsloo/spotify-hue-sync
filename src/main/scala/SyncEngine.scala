@@ -92,10 +92,16 @@ class SyncEngine[F[_]: Async] private (
       manualOffset = -150
       realProgressMs = local.state.progress.toMillis + latencyMs + manualOffset
 
-      frame = generatePulseFrame(bpm, realProgressMs, palette)
+      frame = SyncEngine.pulseFrame(config.hue.zoneId, bpm, realProgressMs, palette)
     } yield Some(frame)
 
-  private def generatePulseFrame(bpm: Double, progressMs: Long, palette: Palette): Frame = {
+object SyncEngine:
+  private val PulseBpm: Double = 20.0
+
+  def make[F[_]: Async](config: AppConfig, spotify: SpotifyClient[F]): F[SyncEngine[F]] =
+    Ref.of[F, Map[String, Palette]](Map.empty).map(new SyncEngine[F](config, spotify, _))
+
+  def pulseFrame(zoneId: String, bpm: Double, progressMs: Long, palette: Palette): Frame = {
     val beatDurationMs = 60000.0 / bpm
     val numLights = 7
 
@@ -142,11 +148,5 @@ class SyncEngine[F[_]: Async] private (
       LightUpdate(channelId, RGB(boost(baseColor.r), boost(baseColor.g), boost(baseColor.b)))
     }.toList
 
-    Frame(config.hue.zoneId, updates)
+    Frame(zoneId, updates)
   }
-
-object SyncEngine:
-  private val PulseBpm: Double = 20.0
-
-  def make[F[_]: Async](config: AppConfig, spotify: SpotifyClient[F]): F[SyncEngine[F]] =
-    Ref.of[F, Map[String, Palette]](Map.empty).map(new SyncEngine[F](config, spotify, _))
