@@ -6,6 +6,11 @@ It polls Spotify for the current track, builds a colour palette for it using col
 
 Built with Scala 3, Cats Effect, fs2 and http4s.
 
+## Documentation
+
+- [Architecture](docs/architecture.md): components, packages and main types, with diagrams
+- [How it works](docs/how-it-works.md): Spotify sign-in, the polling and rendering loops, the colour engine and colour theory, the pulse animation and the Hue streaming protocol
+
 ## Configuration
 
 Credentials are read from environment variables. Copy `.env.example` to `.env`, fill it in, and never commit it.
@@ -34,4 +39,4 @@ sbt run
 sbt test
 ```
 
-Property-based tests (munit + ScalaCheck) cover the colour maths and palette generation.
+Property-based tests (munit + ScalaCheck) cover the colour theory, palette generation, the pulse animation, the Hue packet format and decoding Spotify's player response.
