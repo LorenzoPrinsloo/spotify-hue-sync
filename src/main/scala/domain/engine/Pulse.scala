@@ -1,0 +1,19 @@
+package domain.engine
+
+import domain.config.PulseSettings
+
+object Pulse {
+
+  /** Envelope level in [0, 1] at `phase` pulses since the start; only the fractional part matters. */
+  def level(phase: Double, s: PulseSettings): Double = {
+    val p = phase - math.floor(phase)
+    val decayStart = s.attack + s.sustain
+    if (p < s.attack) p / s.attack
+    else if (p < decayStart) 1.0
+    else math.pow(1.0 - (p - decayStart) / (1.0 - decayStart), s.decayCurve)
+  }
+
+  /** Brightness multiplier for an envelope level: `restLevel` at rest, `restLevel + peakBoost` at the peak. */
+  def brightness(level: Double, s: PulseSettings): Double =
+    s.restLevel + s.peakBoost * level
+}

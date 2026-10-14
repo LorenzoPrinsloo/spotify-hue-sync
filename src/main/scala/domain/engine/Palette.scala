@@ -25,6 +25,12 @@ object Palette {
         Palette(colors = base.analogous.toVector)
       }
     }
+    case Monochromatic =>
+      RGB.random.map(base => Palette(base.monochromatic.toVector))
+    case Triadic =>
+      RGB.random.map(base => Palette(base.triadic.toVector))
+    case Tetradic =>
+      RGB.random.map(base => Palette(base.tetradic.toVector))
     case AnalogousComplementary(order) => {
       for {
         base <- RGB.random
@@ -35,14 +41,11 @@ object Palette {
         }
       } yield Palette(colors = orderedColors)
     }
-    case _ => None
   }
 
   extension (pal: Palette) {
-    // 1 based circular index
-    def getColor(index: Int): RGB = {
-      val i = index % pal.colors.size - 1
-      pal.colors(if (i < 0) i + pal.colors.size else i)
-    }
+    /** 0-based circular index: light 0 gets the first colour, and the palette repeats after the last. */
+    def getColor(index: Int): RGB =
+      pal.colors(Math.floorMod(index, pal.colors.size))
   }
 }

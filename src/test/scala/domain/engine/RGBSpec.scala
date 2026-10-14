@@ -1,20 +1,12 @@
 package domain.engine
 
 import munit.ScalaCheckSuite
-import org.scalacheck.{Arbitrary, Gen}
+import org.scalacheck.Gen
 import org.scalacheck.Prop.{forAll, propBoolean}
 import scodec.Codec
-import java.awt.Color.RGBtoHSB
+import testkit.Colours.{*, given}
 
 class RGBSpec extends ScalaCheckSuite {
-
-  given Arbitrary[RGB] = Arbitrary(
-    for {
-      r <- Gen.choose(0, 255)
-      g <- Gen.choose(0, 255)
-      b <- Gen.choose(0, 255)
-    } yield RGB.safe(r, g, b).get
-  )
 
   property("safe accepts a colour only when every channel is within 0-255") {
     forAll { (r: Int, g: Int, b: Int) =>
@@ -24,14 +16,16 @@ class RGBSpec extends ScalaCheckSuite {
   }
 
   property("the complement of a colour's complement is the colour itself") {
-    forAll { (c: RGB) =>
-      c.compliment.flatMap(_.compliment) == Some(c)
-    }
+    forAll { (c: RGB) => c.compliment.flatMap(_.compliment) == Some(c) }
   }
 
   property("a colour and its complement add up to white on every channel") {
-    forAll { (c: RGB) =>
-      c.compliment.exists(o => c.toVector.zip(o.toVector).forall(_ + _ == 255))
+    forAll { (c: RGB) => c.compliment.exists(o => c.toVector.zip(o.toVector).forall(_ + _ == 255)) }
+  }
+
+  property("a complement sits on the opposite side of the colour wheel") {
+    forAll(rgb.suchThat(spread(_) >= 30)) { c =>
+      c.compliment.exists(o => math.abs(hueDistance(hue(c), hue(o)) - 0.5) < 0.005)
     }
   }
 
@@ -42,37 +36,92 @@ class RGBSpec extends ScalaCheckSuite {
     }
   }
 
+  property("analogous neighbours are 30 degrees either side of the base hue") {
+    forAll(vivid) { c =>
+      val List(left, _, right) = c.analogous: @unchecked
+      math.abs(degrees(hueDistance(hue(left), hue(c))) - 30) < 2 &&
+        math.abs(degrees(hueDistance(hue(right), hue(c))) - 30) < 2
+    }
+  }
+
+  property("rotating the hue keeps saturation and brightness") {
+    forAll(vivid, Gen.choose(-360, 360)) { (c, deg) =>
+      val r = c.rotateHue(deg)
+      math.abs(brightness(r) - brightness(c)) <= 1.0 / 255 + 1e-6 &&
+        math.abs(saturation(r) - saturation(c)) < 0.02
+    }
+  }
+
+  property("rotating by a full turn gives the same colour back") {
+    forAll { (c: RGB) => close(c.rotateHue(360), c) }
+  }
+
+  property("triadic colours are 120 degrees apart") {
+    forAll(vivid) { c =>
+      val List(a, b, d) = c.triadic: @unchecked
+      a == c &&
+        math.abs(degrees(hueDistance(hue(a), hue(b))) - 120) < 2 &&
+        math.abs(degrees(hueDistance(hue(b), hue(d))) - 120) < 2 &&
+        math.abs(degrees(hueDistance(hue(d), hue(a))) - 120) < 2
+    }
+  }
+
+  property("tetradic colours are 90 degrees apart around the wheel") {
+    forAll(vivid) { c =>
+      val colours = c.tetradic
+      colours.size == 4 && colours.head == c &&
+        colours.zip(colours.tail :+ colours.head).forall((x, y) => math.abs(degrees(hueDistance(hue(x), hue(y))) - 90) < 2)
+    }
+  }
+
+  property("monochromatic colours share the hue at three increasing brightness levels") {
+    forAll(vivid) { c =>
+      val colours = c.monochromatic
+      val levels = colours.map(brightness)
+      colours.size == 3 &&
+        levels.zip(List(0.35, 0.65, 1.0)).forall((got, want) => math.abs(got - want) <= 1.0 / 255 + 1e-6) &&
+        colours.drop(1).forall(x => degrees(hueDistance(hue(x), hue(c))) < 3)
+    }
+  }
+
+  property("scaling brightness keeps the hue, so bright colours don't wash out") {
+    forAll(vivid, Gen.choose(1.0, 4.0)) { (c, factor) =>
+      val scaled = c.scaleBrightness(factor)
+      degrees(hueDistance(hue(scaled), hue(c))) < 2 &&
+        math.abs(saturation(scaled) - saturation(c)) < 0.02 &&
+        math.abs(brightness(scaled) - math.min(1.0, brightness(c) * factor)) <= 1.0 / 255 + 1e-6
+    }
+  }
+
+  property("scaling brightness never pushes a channel past 255 or below 0") {
+    forAll(rgb, Gen.choose(0.0, 10.0)) { (c, factor) =>
+      c.scaleBrightness(factor).toVector.forall(v => v >= 0 && v <= 255)
+    }
+  }
+
+  property("mix gives the first colour at 0, the second at 1, and stays between them") {
+    forAll(rgb, rgb, Gen.choose(0.0, 1.0)) { (a, b, t) =>
+      val m = a.mix(b, t)
+      a.mix(b, 0) == a && a.mix(b, 1) == b &&
+        m.toVector.zip(a.toVector.zip(b.toVector)).forall { case (v, (x, y)) => v >= math.min(x, y) && v <= math.max(x, y) }
+    }
+  }
+
+  property("fromHex reads back a colour written as #rrggbb") {
+    forAll { (c: RGB) =>
+      val hex = f"#${c.r.value}%02x${c.g.value}%02x${c.b.value}%02x"
+      RGB.fromHex(hex) == Some(c) && RGB.fromHex(hex.drop(1).toUpperCase) == Some(c)
+    }
+  }
+
+  test("fromHex rejects anything that isn't six hex digits") {
+    List("", "#", "#12345", "#1234567", "#gg0000", "red").foreach(s => assertEquals(RGB.fromHex(s), None, s))
+  }
+
   property("the wire codec round-trips every colour") {
     forAll { (c: RGB) =>
       val codec = summon[Codec[RGB]]
       codec.encode(c).flatMap(codec.decodeValue).toOption == Some(c)
-    }
-  }
-
-  private def hue(c: RGB): Double = RGBtoHSB(c.r.value, c.g.value, c.b.value, null)(0).toDouble
-
-  private def hueDistance(a: Double, b: Double): Double = {
-    val d = math.abs(a - b)
-    math.min(d, 1.0 - d)
-  }
-
-  private def spread(c: RGB): Int = c.toVector.max - c.toVector.min
-
-  property("a complement sits on the opposite side of the colour wheel") {
-    forAll { (c: RGB) =>
-      spread(c) >= 30 ==> c.compliment.exists(o => math.abs(hueDistance(hue(c), hue(o)) - 0.5) < 0.005)
-    }
-  }
-
-  property("analogous neighbours are 30 degrees either side of the base hue") {
-    forAll { (c: RGB) =>
-      spread(c) >= 60 ==> {
-        val List(left, _, right) = c.analogous: @unchecked
-        val thirtyDegrees = 30.0 / 360.0
-        val tolerance = 2.0 / 360.0
-        math.abs(hueDistance(hue(left), hue(c)) - thirtyDegrees) < tolerance &&
-          math.abs(hueDistance(hue(right), hue(c)) - thirtyDegrees) < tolerance
-      }
     }
   }
 }

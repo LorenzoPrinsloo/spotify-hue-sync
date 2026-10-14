@@ -1,6 +1,9 @@
-import domain.engine.{Order, Palette, PaletteType, RGB}
+import domain.config.{PauseSettings, PulseSettings}
+import domain.engine.{Order, Palette, PaletteType, Pulse, Renderer, RGB}
+import domain.hue.Zone
 import java.awt.Color
 import java.nio.file.{Files, Path, Paths}
+import scala.concurrent.duration.*
 import scala.util.Random
 
 /** Regenerates the images in docs/images from the real colour engine and pulse code. Run with `sbt "Test/runMain DocImages"`. */
@@ -10,17 +13,23 @@ object DocImages {
   private val base: RGB = RGB.safe(220, 70, 40).get
   private val bpm = 20.0
   private val beatMs = 60000.0 / bpm
-  private val zoneId = "00000000-0000-0000-0000-000000000000"
+  private val zone = Zone("00000000-0000-0000-0000-000000000000", (0 until 7).toList)
+  private val settings = PulseSettings()
 
   def main(args: Array[String]): Unit = {
     Files.createDirectories(out)
     write("palette-analogous.svg", paletteImage("Analogous", PaletteType.Analogous, List("-30°", "base", "+30°")))
     write("palette-complementary.svg", paletteImage("Complementary", PaletteType.Complementary, List("base", "complement")))
+    write("palette-monochromatic.svg", paletteImage("Monochromatic", PaletteType.Monochromatic, List("35%", "65%", "100%")))
+    write("palette-triadic.svg", paletteImage("Triadic", PaletteType.Triadic, List("base", "+120°", "+240°")))
+    write("palette-tetradic.svg", paletteImage("Tetradic", PaletteType.Tetradic, List("base", "+90°", "+180°", "+270°")))
     write("palette-analogous-complementary.svg", analogousComplementaryImage)
     write("light-mapping.svg", lightMappingImage)
     write("pulse-envelope.svg", envelopeImage)
     write("pulse-wave.svg", waveImage)
     write("pulse-timeline.svg", timelineImage)
+    write("peak-brightness.svg", peakImage)
+    write("pause-fade.svg", pauseImage)
   }
 
   private def write(name: String, svg: String): Unit = {
@@ -55,8 +64,11 @@ object DocImages {
     (cx + r * math.cos(a), cy + r * math.sin(a))
   }
 
-  /** A hue ring with a marker for each colour, placed at its hue. */
-  private def wheel(cx: Double, cy: Double, colours: List[(RGB, String)]): String = {
+  /**
+   * A hue ring with a marker for each colour, placed at its hue. With `byBrightness`, markers sit along the spoke
+   * by brightness instead (dark near the centre), for palettes that share a single hue.
+   */
+  private def wheel(cx: Double, cy: Double, colours: List[(RGB, String)], byBrightness: Boolean = false): String = {
     val outer = 120.0
     val inner = 80.0
     val ring = (0 until 360).map { deg =>
@@ -69,8 +81,9 @@ object DocImages {
     }.mkString("\n")
     val markers = colours.map { case (c, label) =>
       val h = hsb(c)(0).toDouble
-      val (mx, my) = polar(cx, cy, (outer + inner) / 2, h)
-      val (lx, ly) = polar(cx, cy, outer + 22, h)
+      val markerRadius = if (byBrightness) hsb(c)(2) * (outer + inner) / 2 else (outer + inner) / 2
+      val (mx, my) = polar(cx, cy, markerRadius, h)
+      val (lx, ly) = if (byBrightness) (mx + 34, my + 4) else polar(cx, cy, outer + 22, h)
       s"""<line x1="${fmt(cx)}" y1="${fmt(cy)}" x2="${fmt(mx)}" y2="${fmt(my)}" stroke="#555" stroke-width="1.5" stroke-dasharray="4 3"/>
          |<circle cx="${fmt(mx)}" cy="${fmt(my)}" r="13" fill="${hex(c)}" stroke="#fff" stroke-width="3"/>
          |<circle cx="${fmt(mx)}" cy="${fmt(my)}" r="15" fill="none" stroke="#333" stroke-width="1"/>
@@ -93,7 +106,7 @@ object DocImages {
     val colours = palette(mode).colors.toList.zip(labels)
     svg(640, 350) {
       s"""${text(20, 30, s"$title palette", 18, weight = "bold")}
-         |${wheel(170, 195, colours)}
+         |${wheel(170, 195, colours, byBrightness = mode == PaletteType.Monochromatic)}
          |${swatches(340, 145, colours)}""".stripMargin
     }
   }
@@ -179,11 +192,9 @@ object DocImages {
     }
   }
 
-  private val grey: RGB = RGB.safe(90, 90, 90).get
-
-  /** The brightness multiplier of one light at a moment, read back from the real pulseFrame output. */
+  /** The brightness multiplier of one light at a moment, from the real pulse envelope. */
   private def multiplier(light: Int, ms: Long): Double =
-    SyncEngine.pulseFrame(zoneId, bpm, ms, Palette(Vector(grey))).updates(light).color.r.value / 90.0
+    Pulse.brightness(Pulse.level(ms / beatMs - light * settings.stagger, settings), settings)
 
   private def samples(seconds: Double, stepMs: Int = 10): Seq[Long] = (0L to (seconds * 1000).toLong by stepMs.toLong)
 
@@ -247,7 +258,7 @@ object DocImages {
     val cols = (seconds * 1000 / stepMs).toInt
     val colW = 720.0 / cols
     val cells = (0 until cols).flatMap { col =>
-      val frame = SyncEngine.pulseFrame(zoneId, bpm, (col * stepMs).toLong, p)
+      val frame = SyncEngine.pulseFrame(zone, p, bpm, (col * stepMs).toLong, settings)
       frame.updates.map { u =>
         s"""<rect x="${fmt(left + col * colW)}" y="${fmt(top + u.id * rowH)}" width="${fmt(colW + 0.4)}" height="${fmt(rowH - 3)}" fill="${hex(u.color)}"/>"""
       }
@@ -262,6 +273,73 @@ object DocImages {
          |$cells
          |$labels
          |$xTicks""".stripMargin
+    }
+  }
+
+  /** One light's colour over a beat, drawn as a strip, using `brighten` to apply the pulse. */
+  private def strip(x: Double, y: Double, w: Double, h: Double, brighten: (RGB, Double) => RGB): String = {
+    val steps = 120
+    (0 until steps).map { i =>
+      val m = Pulse.brightness(Pulse.level(i.toDouble / steps, settings), settings)
+      s"""<rect x="${fmt(x + i * w / steps)}" y="${fmt(y)}" width="${fmt(w / steps + 0.4)}" height="${fmt(h)}" fill="${hex(brighten(base, m))}"/>"""
+    }.mkString("\n")
+  }
+
+  /** How the engine used to brighten colours: multiply each RGB channel and cap it at 255. Shown for comparison only. */
+  private def multiplyRgb(c: RGB, m: Double): RGB =
+    RGB.safe(math.min(255, (c.r.value * m).toInt), math.min(255, (c.g.value * m).toInt), math.min(255, (c.b.value * m).toInt)).get
+
+  private def peakImage: String =
+    svg(760, 230) {
+      s"""${text(20, 28, "One pulse of the base colour, before and after the wash-out fix", 16, weight = "bold")}
+         |${text(20, 72, "Multiplying RGB", 12, weight = "bold")}
+         |${text(20, 88, "(old: shifts to yellow)", 11, fill = "#777")}
+         |${strip(190, 55, 540, 44, multiplyRgb)}
+         |${text(20, 142, "Scaling HSB brightness", 12, weight = "bold")}
+         |${text(20, 158, "(now: keeps the hue)", 11, fill = "#777")}
+         |${strip(190, 125, 540, 44, (c, m) => c.scaleBrightness(m))}
+         |${text(190, 195, "start of beat", 11, fill = "#666")}
+         |${text(190 + 540 * 0.25, 195, "peak", 11, "middle", fill = "#666")}
+         |${text(730, 195, "end of beat", 11, "end", fill = "#666")}""".stripMargin
+    }
+
+  private def pauseImage: String = {
+    val p = palette(PaletteType.Analogous)
+    val pause = PauseSettings()
+    val left = 80.0
+    val top = 50.0
+    val rowH = 30.0
+    val stepMs = 25
+    val totalMs = 6000
+    val stopAt = 2000
+    val cols = totalMs / stepMs
+    val colW = 720.0 / cols
+    val frames = (0 until cols).scanLeft((Renderer.initial, Option.empty[domain.hue.Frame])) { case ((state, _), col) =>
+      val ms = col * stepMs
+      if (ms < stopAt) {
+        val (next, f) = Renderer.playing(SyncEngine.pulseFrame(zone, p, bpm, ms.toLong, settings))
+        (next, Some(f))
+      } else {
+        val (next, f) = Renderer.paused(state, ms.millis, zone, pause)
+        (next, Some(f))
+      }
+    }.drop(1).map(_._2.get)
+    val cells = frames.zipWithIndex.flatMap { (frame, col) =>
+      frame.updates.map { u =>
+        s"""<rect x="${fmt(left + col * colW)}" y="${fmt(top + u.id * rowH)}" width="${fmt(colW + 0.4)}" height="${fmt(rowH - 3)}" fill="${hex(u.color)}"/>"""
+      }
+    }.mkString("\n")
+    val labels = (0 until 7).map(i => text(left - 10, top + i * rowH + 19, s"light $i", 11, "end", fill = "#555")).mkString("\n")
+    val stopX = left + stopAt / stepMs * colW
+    val fadeEndX = left + (stopAt + pause.fadeOutMs) / stepMs * colW
+    svg(830, (top + 7 * rowH + 40).toInt) {
+      s"""${text(20, 28, s"Playback stops at 2s: the lights fade to the resting colour over ${pause.fadeOutMs / 1000}s, then hold it", 16, weight = "bold")}
+         |$cells
+         |$labels
+         |<line x1="${fmt(stopX)}" y1="${fmt(top - 6)}" x2="${fmt(stopX)}" y2="${fmt(top + 7 * rowH)}" stroke="#333" stroke-dasharray="4 3"/>
+         |<line x1="${fmt(fadeEndX)}" y1="${fmt(top - 6)}" x2="${fmt(fadeEndX)}" y2="${fmt(top + 7 * rowH)}" stroke="#333" stroke-dasharray="4 3"/>
+         |${text(stopX, top + 7 * rowH + 18, "playback stops", 11, "middle", fill = "#444")}
+         |${text(fadeEndX, top + 7 * rowH + 18, "fade complete", 11, "middle", fill = "#444")}""".stripMargin
     }
   }
 }

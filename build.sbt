@@ -61,6 +61,8 @@ lazy val root = project
 
       // Testing
       "org.scalameta" %% "munit"            % "1.0.0" % Test,
-      "org.scalameta" %% "munit-scalacheck" % "1.0.0" % Test
+      "org.scalameta" %% "munit-scalacheck" % "1.0.0" % Test,
+      "org.typelevel" %% "munit-cats-effect" % "2.0.0" % Test,
+      "org.typelevel" %% "cats-effect-testkit" % catsEffectVersion % Test
     )
   )

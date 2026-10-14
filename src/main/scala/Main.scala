@@ -5,6 +5,7 @@ import fs2.Stream
 import client.{CachedSpotifyClient, DtlsEmitter, HueClient}
 import cats.implicits.*
 import domain.config.AppConfig
+import domain.hue.Zone
 import fs2.io.net.tls.TLSContext
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 import org.http4s.ember.client.EmberClientBuilder
@@ -21,7 +22,8 @@ object Main extends IOApp {
       hueClient = new HueClient[IO](config.hue.creds, httpClient)
       emitter = new DtlsEmitter[IO](config.hue.creds)
 
-      engine <- Resource.eval(SyncEngine.make[IO](config, spotify))
+      channels <- Resource.eval(hueClient.getChannels(config.hue.zoneId))
+      engine <- Resource.eval(SyncEngine.make[IO](config, spotify, Zone(config.hue.zoneId, channels)))
     } yield (config, hueClient, emitter, engine)
 
     resources.use { case (config, hueClient, emitter, engine) =>

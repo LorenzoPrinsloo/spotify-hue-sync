@@ -2,52 +2,52 @@ import cats.effect.*
 import cats.syntax.all.*
 import client.SpotifyClient
 import fs2.Stream
-import domain.*
+import domain.config.{AppConfig, PulseSettings}
+import domain.engine.{LocalPlayback, Palette, Pulse, Renderer}
 import domain.hue.*
-import domain.spotify.*
-import domain.config.AppConfig
-import domain.engine.Order.Flat
-import domain.engine.PaletteType.{Analogous, AnalogousComplementary}
-import domain.engine.{LocalPlayback, Palette, RGB}
+import domain.spotify.types.TrackId
 import fs2.concurrent.SignallingRef
 import org.typelevel.log4cats.SelfAwareStructuredLogger
 import org.typelevel.log4cats.slf4j.Slf4jLogger
-import eu.timepit.refined.*
-import eu.timepit.refined.api.Refined
-import eu.timepit.refined.auto.*
-import eu.timepit.refined.numeric.Interval
-import java.time.Instant
 import scala.concurrent.duration.*
 import scala.util.Random
-import domain.engine.RGB.ByteInt
+
+/** The tempo and palette chosen for one track. */
+case class TrackShow(bpm: Double, palette: Palette)
 
 class SyncEngine[F[_]: Async] private (
                                config: AppConfig,
+                               zone: Zone,
                                spotify: SpotifyClient[F],
-                               paletteCache: Ref[F, Map[String, Palette]]
+                               tracks: Ref[F, Map[TrackId, TrackShow]],
+                               random: Random
                              ):
 
   private val logger: SelfAwareStructuredLogger[F] = Slf4jLogger.getLogger[F]
+  private val show = config.lightShow
 
-  /**
-   * Every track pulses at the same tempo; the palette is generated once per track.
-   * Logging only happens on a cache miss.
-   */
-  private def getTrackResources(trackId: String): F[(Double, Palette)] =
-    paletteCache.get.map(_.get(trackId)).flatMap {
-      case Some(existing) =>
-        Async[F].pure((SyncEngine.PulseBpm, existing))
+  /** Tempo and palette for a track, looked up once and then cached. Logging only happens on a cache miss. */
+  def showFor(trackId: TrackId): F[TrackShow] =
+    tracks.get.map(_.get(trackId)).flatMap {
+      case Some(existing) => Async[F].pure(existing)
       case None =>
         for {
-          generated <- Async[F].delay(Palette.random(Analogous).get)
-          palette <- paletteCache.modify { cache =>
+          tempo <- spotify.getTempo(trackId).handleErrorWith { err =>
+            logger.warn(s"Couldn't fetch the tempo for $trackId: $err") *> Async[F].pure(None)
+          }
+          bpm = tempo.getOrElse(show.defaultBpm) / show.beatsPerPulse
+          generated <- Async[F].delay(Palette.random(show.palette)(using random).get)
+          chosen <- tracks.modify { cache =>
             cache.get(trackId) match {
               case Some(existing) => (cache, existing)
-              case None           => (cache.updated(trackId, generated), generated)
+              case None =>
+                val created = TrackShow(bpm, generated)
+                (cache.updated(trackId, created), created)
             }
           }
-          _ <- logger.info(s"New Palette for $trackId (BPM: ${SyncEngine.PulseBpm}):\n${palette.show}")
-        } yield (SyncEngine.PulseBpm, palette)
+          source = tempo.fold(s"default ${show.defaultBpm} BPM")(t => s"track tempo $t BPM")
+          _ <- logger.info(s"New show for $trackId: pulsing at ${chosen.bpm} BPM ($source), palette ${show.palette}:\n${chosen.palette.show}")
+        } yield chosen
     }
 
   def run: Stream[F, Frame] =
@@ -59,94 +59,47 @@ class SyncEngine[F[_]: Async] private (
             logger.error(s"Spotify Poll Failed: $err") *> Async[F].pure(None)
           }
         }
-        .map(_.map(s => LocalPlayback(s, Instant.now())))
-        .evalMap(sp => stateRef.set(sp))
+        .evalMap(state => Clock[F].realTimeInstant.map(now => state.map(LocalPlayback(_, now))))
+        .evalMap(stateRef.set)
 
-      val renderer = Stream.awakeEvery[F](16.millis) // ~60fps for smooth pulsing
+      val renderer = Stream.awakeEvery[F](show.frameIntervalMs.millis)
         .evalMap(_ => stateRef.get)
-        .unNone
-        .flatMap { local =>
-          if (!local.state.isPlaying) Stream.empty
-          else Stream.eval(calculateBpmFrame(local)).unNone
+        .evalMapAccumulate(Renderer.initial) { (rendered, playback) =>
+          playback.filter(_.state.isPlaying) match {
+            case Some(local) => playingFrame(local).map(Renderer.playing)
+            case None        => Clock[F].monotonic.map(now => Renderer.paused(rendered, now, zone, show.pause))
+          }
         }
+        .map(_._2)
 
       renderer.merge(poller.drain)
+        .zipWithIndex
+        .map((frame, i) => frame.copy(sequence = (i % 256).toInt))
     }
 
-  /**
-   * Calculates the frame based on tempo and time elapsed since song start.
-   */
-  private def calculateBpmFrame(local: LocalPlayback): F[Option[Frame]] =
+  /** The frame for the current moment of a playing track. */
+  private def playingFrame(local: LocalPlayback): F[Frame] =
     for {
-      resources <- getTrackResources(local.state.trackId)
-      (bpm, palette) = resources
-
-      // Wrap side-effecting time calls in Sync/Async delay
-      now <- Async[F].delay(Instant.now())
-
-      // Spotify 'timestamp' is when the progress was measured
-      latency = java.time.Duration.between(local.receivedAt, now)
-      latencyMs = latency.toMillis
-
-      // Adjust this nudge if the lights are ahead/behind the audio
-      manualOffset = -150
-      realProgressMs = local.state.progress.toMillis + latencyMs + manualOffset
-
-      frame = SyncEngine.pulseFrame(config.hue.zoneId, bpm, realProgressMs, palette)
-    } yield Some(frame)
+      track <- showFor(local.state.trackId)
+      now <- Clock[F].realTimeInstant
+      latencyMs = java.time.Duration.between(local.receivedAt, now).toMillis
+      positionMs = local.state.progress.toMillis + latencyMs + show.syncOffsetMs
+    } yield SyncEngine.pulseFrame(zone, track.palette, track.bpm, positionMs, show.pulse)
 
 object SyncEngine:
-  private val PulseBpm: Double = 20.0
 
-  def make[F[_]: Async](config: AppConfig, spotify: SpotifyClient[F]): F[SyncEngine[F]] =
-    Ref.of[F, Map[String, Palette]](Map.empty).map(new SyncEngine[F](config, spotify, _))
+  def make[F[_]: Async](config: AppConfig, spotify: SpotifyClient[F], zone: Zone, random: Random = new Random()): F[SyncEngine[F]] =
+    Ref.of[F, Map[TrackId, TrackShow]](Map.empty).map(new SyncEngine[F](config, zone, spotify, _, random))
 
-  def pulseFrame(zoneId: String, bpm: Double, progressMs: Long, palette: Palette): Frame = {
-    val beatDurationMs = 60000.0 / bpm
-    val numLights = 7
-
-    // How much to delay each light (0.1 means each light starts 10% later than the previous)
-    // Adjust this: 0.1 is subtle, 0.2 is a very obvious "wave"
-    val staggerOffset = 0.15
-
-    val updates = (0 until numLights).map { channelId =>
-      val baseColor = palette.getColor(channelId)
-
-      // 1. Calculate the shifted progress for this specific light
-      // We don't slice the beat; we just shift the "Start Time" of the pulse
-      val totalProgress = progressMs.toDouble / beatDurationMs
-      val lightOffset = channelId * staggerOffset
-
-      // Modulo 1.0 gives us where this specific light is in its pulse cycle (0.0 to 1.0)
-      val individualProgress = (totalProgress - lightOffset) % 1.0
-      val normalizedProgress = if (individualProgress < 0) individualProgress + 1.0 else individualProgress
-
-      // 2. Pulse math (identical to before, but now it lasts the whole beat)
-      val attack = 0.20 // 20% of beat spent "swelling" up
-      val sustain = 0.10 // 10% of beat staying at peak
-      val pulse = if (normalizedProgress < attack) {
-        // 1. Swell: Linear or Sine ramp up
-        normalizedProgress / attack
-      } else if (normalizedProgress < attack + sustain) {
-        // 2. Plateau: Stay at max
-        1.0
-      } else {
-        // 3. Gradual Decay: 
-        // Lowering the Power (from 4.0 to 1.5 or 2.0) makes the fade linger longer.
-        val decayStart = attack + sustain
-        val decayProgress = (normalizedProgress - decayStart) / (1.0 - decayStart)
-        Math.pow(1.0 - decayProgress, 2.0) // 2.0 is much "softer" than 4.0
-      }
-
-      def boost(v: ByteInt): ByteInt = {
-        val peakBoost = 2.5
-        val floor = 0.15
-        val multiplier = floor + (peakBoost * pulse)
-        Refined.unsafeApply(Math.max(0, Math.min(255, (v.value * multiplier).toInt)))
-      }
-
-      LightUpdate(channelId, RGB(boost(baseColor.r), boost(baseColor.g), boost(baseColor.b)))
-    }.toList
-
-    Frame(zoneId, updates)
+  /**
+   * One frame of the pulse for every channel in the zone. Light i takes palette colour i and starts its
+   * pulse `stagger` of a beat after light i - 1, so the pulse travels across the zone as a wave.
+   */
+  def pulseFrame(zone: Zone, palette: Palette, bpm: Double, positionMs: Long, settings: PulseSettings): Frame = {
+    val beats = positionMs / (60000.0 / bpm)
+    val updates = zone.channels.zipWithIndex.map { (channel, i) =>
+      val level = Pulse.level(beats - i * settings.stagger, settings)
+      LightUpdate(channel, palette.getColor(i).scaleBrightness(Pulse.brightness(level, settings)))
+    }
+    Frame(zone.id, updates)
   }

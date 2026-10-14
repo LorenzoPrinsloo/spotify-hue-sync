@@ -8,7 +8,8 @@ import pureconfig._
 case class AppConfig(
   spotify: SpotifyCredentials,
   hue: HueConfig,
-  pollingIntervalMs: Int = 2000
+  pollingIntervalMs: Int = 2000,
+  lightShow: LightShowConfig = LightShowConfig()
 ) derives ConfigReader
 object AppConfig {
   def load[F[_] : Sync]: F[AppConfig] =

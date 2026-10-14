@@ -44,6 +44,22 @@ object RGB {
       bb <- refineV[Interval.Closed[0, 255]](b).toOption
     } yield RGB(rr, gg, bb)
 
+  /** Parses `#rrggbb` (the `#` is optional). */
+  def fromHex(hex: String): Option[RGB] = {
+    val digits = hex.stripPrefix("#")
+    if (digits.length != 6 || !digits.forall(Character.digit(_, 16) >= 0)) None
+    else safe(
+      Integer.parseInt(digits.substring(0, 2), 16),
+      Integer.parseInt(digits.substring(2, 4), 16),
+      Integer.parseInt(digits.substring(4, 6), 16)
+    )
+  }
+
+  private def fromColor(c: java.awt.Color): RGB =
+    RGB(Refined.unsafeApply(c.getRed), Refined.unsafeApply(c.getGreen), Refined.unsafeApply(c.getBlue))
+
+  private def channel(v: Double): ByteInt = Refined.unsafeApply(math.round(math.max(0.0, math.min(255.0, v))).toInt)
+
   def random(using rnd: Random = Random): Option[RGB] =
     safe(
       rnd.nextInt(256),
@@ -62,19 +78,44 @@ object RGB {
     }
 
     def analogous: List[RGB] =
-      // Shift hue by -30 degrees and +30 degrees
-      List(c.rotate(-30), c.some, c.rotate(30)).flatten
+      List(c.rotateHue(-30), c, c.rotateHue(30))
 
-    private def rotate(degrees: Int): Option[RGB] =
-      val hsb = RGBtoHSB(c.r.value, c.g.value, c.b.value, null)
-      // Hue is 0.0 to 1.0, so 30 degrees is 30/360
-      val newHue = (hsb(0) + (degrees / 360.0f) + 1.0f) % 1.0f
-      val next = getHSBColor(newHue, hsb(1), hsb(2))
+    def monochromatic: List[RGB] =
+      List(0.35, 0.65, 1.0).map(c.withBrightness)
 
-      RGB.safe(
-        next.getRed,
-        next.getGreen,
-        next.getBlue
+    def triadic: List[RGB] =
+      List(c, c.rotateHue(120), c.rotateHue(240))
+
+    /** A square tetrad: four hues spaced 90 degrees apart. */
+    def tetradic: List[RGB] =
+      List(c, c.rotateHue(90), c.rotateHue(180), c.rotateHue(270))
+
+    def hsb: Array[Float] = RGBtoHSB(c.r.value, c.g.value, c.b.value, null)
+
+    def rotateHue(degrees: Int): RGB = {
+      val Array(h, sat, b) = c.hsb
+      val newHue = ((h + degrees / 360.0f) % 1.0f + 1.0f) % 1.0f
+      fromColor(getHSBColor(newHue, sat, b))
+    }
+
+    /** The same hue and saturation at an absolute brightness in [0, 1]. */
+    def withBrightness(brightness: Double): RGB = {
+      val Array(h, sat, _) = c.hsb
+      fromColor(getHSBColor(h, sat, math.max(0.0, math.min(1.0, brightness)).toFloat))
+    }
+
+    /** Multiplies brightness in HSB, so the hue and saturation stay the same; brightness is capped at 1. */
+    def scaleBrightness(factor: Double): RGB =
+      c.withBrightness(c.hsb(2) * factor)
+
+    /** Linear blend towards `other`; 0 gives this colour, 1 gives `other`. */
+    def mix(other: RGB, t: Double): RGB = {
+      val k = math.max(0.0, math.min(1.0, t))
+      RGB(
+        channel(c.r.value + (other.r.value - c.r.value) * k),
+        channel(c.g.value + (other.g.value - c.g.value) * k),
+        channel(c.b.value + (other.b.value - c.b.value) * k)
       )
+    }
   }
 }

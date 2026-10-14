@@ -95,6 +95,19 @@ class SpotifyClient[F[_]: Async: Network](
     yield res
 
   /**
+   * The track's tempo in BPM from Spotify's audio features, or None if Spotify won't provide it
+   * (the endpoint is restricted for newer Spotify apps).
+   */
+  def getTempo(id: TrackId): F[Option[Double]] =
+    for
+      token <- getOrRefresh
+      req    = GET(apiUri / "audio-features" / id.value).withHeaders(Authorization(Credentials.Token(AuthScheme.Bearer, token)))
+      tempo <- client.run(req).use: resp =>
+        if resp.status.isSuccess then resp.as[Json].map(_.hcursor.downField("tempo").as[Double].toOption.filter(_ > 0))
+        else Async[F].pure(None)
+    yield tempo
+
+  /**
    * Port of fetch-spotify-track-segments.ts
    */
   def getTrackAnalysis(id: TrackId): F[Vector[SpotifySegment]] =
