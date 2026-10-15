@@ -1,14 +1,14 @@
 package domain.engine
 
 import beat.AudioReading
-import domain.config.ReactiveSettings
+import domain.config.{ReactiveSettings, SwellSettings}
 import scala.concurrent.duration.FiniteDuration
 
 /**
  * How the music shapes the show at one moment: an overall brightness, a turn of the palette's hue, a white flash
  * across every light after a big hit, and a twinkle on one light after a treble onset. With live audio, each light
  * also has a role: `rhythm` is where the show is in the bar's kick pattern, `paletteShift` how many palette colours
- * the colour lights have moved along the palette, and `glow` how bright they are.
+ * the colour lights have moved along the palette, and `swell` how they swell.
  */
 case class Effects(
   intensity: Double = 1.0,
@@ -18,7 +18,7 @@ case class Effects(
   roles: Vector[LightRole] = Vector.empty,
   rhythm: Option[Rhythm] = None,
   paletteShift: Double = 0.0,
-  glow: Double = 0.0
+  swell: SwellSettings = SwellSettings()
 ) {
   /** The given light's role; without live audio every light pulses. */
   def roleOf(light: Int): LightRole = roles.lift(light).getOrElse(LightRole.Pulse)
@@ -57,6 +57,6 @@ object Effects {
       .map(s => Sparkle(twinkling(Math.floorMod(reading.sparkles * Scatter, twinkling.size.toLong).toInt), settings.sparkle * s.strength * fading(s.at, settings.sparkleDecayMs)))
       .filter(_.amount > 0.005)
     val rhythm = reading.beat.filter(_ => reading.groove.nonEmpty).map(b => Rhythm(reading.groove, b.countAt(now)))
-    Effects(intensity, hueShift, if (flash > 0.005) flash else 0.0, sparkle, roles, rhythm, reading.pitch * settings.colourReach, settings.colourGlow)
+    Effects(intensity, hueShift, if (flash > 0.005) flash else 0.0, sparkle, roles, rhythm, reading.pitch * settings.colourReach, settings.colourSwell)
   }
 }

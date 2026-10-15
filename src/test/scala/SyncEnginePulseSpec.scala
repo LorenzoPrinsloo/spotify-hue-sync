@@ -1,4 +1,4 @@
-import domain.config.PulseSettings
+import domain.config.{PulseSettings, SwellSettings}
 import beat.Groove
 import domain.engine.{Effects, LightRole, Palette, Pulse, RGB, Rhythm, Sparkle}
 import domain.hue.Zone
@@ -142,18 +142,43 @@ class SyncEnginePulseSpec extends ScalaCheckSuite {
     }
   }
 
-  property("colour lights glow steadily whatever the pulse, at their place along the palette") {
-    forAll(channels, palettes, pulses, pulses, Gen.choose(-2.0, 2.0), Gen.choose(0.0, 1.0)) { (ids, palette, p, q, shift, glow) =>
-      val effects = Effects(roles = Vector.fill(ids.size)(LightRole.Colour), paletteShift = shift, glow = glow)
-      val now = SyncEngine.pulseFrame(Zone(zoneId, ids), palette, p, settings, effects)
-      now == SyncEngine.pulseFrame(Zone(zoneId, ids), palette, q, settings, effects) &&
-        now.updates.zipWithIndex.forall((u, i) => u.color == palette.along(i, shift).scaleBrightness(Pulse.brightness(glow, settings)))
+  private val swells: Gen[SwellSettings] = for {
+    beats <- Gen.oneOf(1.0, 2.0, 4.0)
+    shape <- pulseSettings
+  } yield SwellSettings(beats, shape.attack, shape.sustain, shape.decayCurve, shape.restLevel, shape.peakBoost)
+
+  private def colourAt(c: RGB, swell: SwellSettings, beats: Double, pulses: Double = 0.6): RGB = {
+    val effects = Effects(roles = Vector(LightRole.Colour), rhythm = Some(Rhythm(Groove.Prior, beats)), swell = swell)
+    SyncEngine.pulseFrame(Zone(zoneId, List(0)), Palette(Vector(c)), pulses, settings, effects).updates.head.color
+  }
+
+  property("a colour light swells once every few beats, at rest until it starts to rise and at its peak on the beat") {
+    forAll(rgb, swells, Gen.choose(-500, 500)) { (c, swell, n) =>
+      val peak = n * swell.beats
+      colourAt(c, swell, peak) == c.scaleBrightness(Pulse.brightness(1, swell.shape)) &&
+        colourAt(c, swell, peak - swell.attack * swell.beats) == c.scaleBrightness(Pulse.brightness(0, swell.shape))
+    }
+  }
+
+  property("with a beat, the swell follows the beat count, whatever the pulse lights are doing") {
+    forAll(rgb, swells, Gen.choose(-500.0, 500.0), pulses, pulses) { (c, swell, beats, p, q) =>
+      colourAt(c, swell, beats, p) == colourAt(c, swell, beats, q)
+    }
+  }
+
+  property("throughout the swell, colour lights keep their place along the palette") {
+    forAll(channels, palettes, pulses, Gen.choose(-2.0, 2.0), swells) { (ids, palette, p, shift, swell) =>
+      val effects = Effects(roles = Vector.fill(ids.size)(LightRole.Colour), paletteShift = shift, swell = swell)
+      val level = Pulse.onBeat(p / swell.beats, swell.shape)
+      SyncEngine.pulseFrame(Zone(zoneId, ids), palette, p, settings, effects).updates.zipWithIndex.forall { (u, i) =>
+        u.color == palette.along(i, shift).scaleBrightness(Pulse.brightness(level, swell.shape))
+      }
     }
   }
 
   property("pulse lights do the classic travelling pulse whatever the other lights do") {
     forAll(Gen.listOfN(7, Gen.oneOf(LightRole.values.toList)), palettes, pulses) { (roles, palette, p) =>
-      val effects = Effects(roles = roles.toVector, rhythm = Some(Rhythm(Groove.Prior, p + 0.3)), paletteShift = 0.7, glow = 0.4)
+      val effects = Effects(roles = roles.toVector, rhythm = Some(Rhythm(Groove.Prior, p + 0.3)), paletteShift = 0.7)
       val mixed = SyncEngine.pulseFrame(sevenLights, palette, p, settings, effects).updates
       val classic = SyncEngine.pulseFrame(sevenLights, palette, p, settings).updates
       roles.indices.filter(roles(_) == LightRole.Pulse).forall(i => mixed(i) == classic(i))

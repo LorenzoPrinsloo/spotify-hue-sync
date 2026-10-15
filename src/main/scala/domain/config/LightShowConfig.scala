@@ -38,12 +38,29 @@ case class AudioSettings(
 )
 
 /**
+ * The swell of the colour lights: one every `beats` beats, peaking on the beat. As for the pulse, `attack` and
+ * `sustain` are fractions of a swell and `decayCurve` shapes the fade after the peak; brightness runs from `restLevel`
+ * up to `restLevel + peakBoost` times the colour's own. The defaults rise slowly, hold briefly and peak at the colour's
+ * full brightness without overdriving it, so the whole swell stays visible.
+ */
+case class SwellSettings(
+  beats: Double = 2.0,
+  attack: Double = 0.45,
+  sustain: Double = 0.1,
+  decayCurve: Double = 2.0,
+  restLevel: Double = 0.25,
+  peakBoost: Double = 0.75
+) {
+  /** The swell as a pulse shape, one swell long. */
+  def shape: PulseSettings = PulseSettings(0.0, attack, sustain, decayCurve, restLevel, peakBoost)
+}
+
+/**
  * How the show reacts to live audio, beyond the beat.
  *
  * Each light gets a job from `roles`, repeated across the zone in channel order. Rhythm lights pulse with the bar's
- * kick pattern. Colour lights glow at
- * `colourGlow` of a pulse's peak and move up to `colourReach` palette colours along the palette as the music goes
- * higher or lower. Pulse lights do the classic travelling pulse, their palette turning by up to `colourShift`
+ * kick pattern. Colour lights swell with `colourSwell`, once every couple of beats, and move up to `colourReach` palette
+ * colours along the palette as the music goes higher or lower. Pulse lights do the classic travelling pulse, their palette turning by up to `colourShift`
  * degrees as the treble picks up or drops away.
  *
  * Brightness follows the music's energy, between `quietest` and `loudest` times normal. A big hit (louder than
@@ -64,7 +81,7 @@ case class ReactiveSettings(
   sparkleRatio: Double = 4.0,
   roles: List[LightRole] = List(LightRole.Rhythm, LightRole.Colour),
   colourReach: Double = 1.0,
-  colourGlow: Double = 0.3
+  colourSwell: SwellSettings = SwellSettings()
 )
 
 case class LightShowConfig(
@@ -84,6 +101,7 @@ object LightShowConfig {
 
   def validate(c: LightShowConfig): Either[String, LightShowConfig] = {
     val p = c.pulse
+    val swell = c.reactive.colourSwell
     val problems = List(
     Option.when(c.defaultBpm <= 0)("default-bpm must be positive"),
     Option.when(c.beatsPerPulse <= 0)("beats-per-pulse must be positive"),
@@ -102,7 +120,11 @@ object LightShowConfig {
     Option.when(c.reactive.hitRatio <= 1 || c.reactive.sparkleRatio <= 1)("reactive.hit-ratio and reactive.sparkle-ratio must be above 1"),
     Option.when(c.reactive.roles.isEmpty)("reactive.roles needs at least one role"),
     Option.when(c.reactive.colourReach < 0)("reactive.colour-reach can't be negative"),
-    Option.when(c.reactive.colourGlow < 0 || c.reactive.colourGlow > 1)("reactive.colour-glow must be between 0 and 1")
+    Option.when(c.reactive.colourSwell.beats <= 0)("reactive.colour-swell.beats must be positive"),
+    Option.when(swell.attack < 0 || swell.sustain < 0)("reactive.colour-swell.attack and reactive.colour-swell.sustain can't be negative"),
+    Option.when(swell.attack + swell.sustain >= 1)("reactive.colour-swell.attack + reactive.colour-swell.sustain must be less than 1"),
+    Option.when(swell.decayCurve <= 0)("reactive.colour-swell.decay-curve must be positive"),
+    Option.when(swell.restLevel < 0 || swell.peakBoost < 0)("reactive.colour-swell.rest-level and reactive.colour-swell.peak-boost can't be negative")
     ).flatten
     if (problems.isEmpty) Right(c) else Left(problems.mkString("; "))
   }
@@ -127,6 +149,7 @@ object LightShowConfig {
   given ConfigReader[PulseSettings] = ConfigReader.derived[PulseSettings]
   given ConfigReader[PauseSettings] = ConfigReader.derived[PauseSettings]
   given ConfigReader[AudioSettings] = ConfigReader.derived[AudioSettings]
+  given ConfigReader[SwellSettings] = ConfigReader.derived[SwellSettings]
   given ConfigReader[ReactiveSettings] = ConfigReader.derived[ReactiveSettings]
 
   given ConfigReader[LightShowConfig] = ConfigReader.derived[LightShowConfig].emap { c =>

@@ -37,7 +37,7 @@ What's still to do, roughly in priority order. Tick items off as they land.
 - [x] The live beat is held through breakdowns and short silences instead of dropping straight to Spotify timing
 - [x] Once locked, weaker estimates that agree on the tempo keep the beat, so quieter sections of a song don't lose it
 - [x] Tempo changes logged, with the tracker's confidence
-- [x] Light roles: rhythm lights play the bar's kick pattern ahead on the beat grid, colour lights move along the palette with the pitch
+- [x] Light roles: rhythm lights play the bar's kick pattern ahead on the beat grid, colour lights swell every other beat and move along the palette with the pitch
 - [x] The Spotify access token is renewed when it expires, so the lights keep going past the first hour
 - [x] Beats land on the kick rather than on off-beat hi-hats, and the tracker no longer flips between the beat and the off-beat
 - [x] Locks on once the tempo has held steady for a few seconds, so songs with a softer beat don't fall back to Spotify timing

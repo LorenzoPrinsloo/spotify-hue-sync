@@ -17,9 +17,9 @@ class EffectsSpec extends ScalaCheckSuite {
 
   test("a typical moment changes nothing but which job each light has") {
     val typical = effects(AudioReading(None))
-    assertEquals(typical.copy(roles = Vector.empty, glow = 0.0), Effects.neutral)
+    assertEquals(typical.copy(roles = Vector.empty), Effects.neutral)
     assertEquals(typical.roles, Vector.fill(3)(Vector(LightRole.Rhythm, LightRole.Colour)).flatten)
-    assertEquals(typical.glow, settings.colourGlow)
+    assertEquals(typical.swell, settings.colourSwell)
   }
 
   private val rolePatterns: Gen[List[LightRole]] =

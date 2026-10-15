@@ -1,9 +1,9 @@
 package domain.engine
 
 /**
- * What a light does in the show. `Rhythm` lights pulse with the kick and bass pattern, `Colour` lights glow and move
- * along the palette as the music goes higher or lower, and `Pulse` lights do the classic pulse that travels across the
- * zone.
+ * What a light does in the show. `Rhythm` lights pulse with the kick pattern, `Colour` lights swell every couple of beats
+ * and move along the palette as the music goes higher or lower, and `Pulse` lights do the classic pulse that travels
+ * across the zone.
  */
 enum LightRole {
   case Pulse, Rhythm, Colour

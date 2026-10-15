@@ -231,7 +231,7 @@ With live audio, each light has a job, set by `reactive.roles` and repeated acro
 | Role | What it follows | What it does |
 |---|---|---|
 | `rhythm` | The kick pattern of the bar | Pulses on the sixteenths where the kick hits, as hard as it usually hits there, all rhythm lights together. Until there's a live beat, it pulses on every beat |
-| `colour` | How high the vocals, leads and chords sit | Glows steadily at `colour-glow`, and moves along the palette: up to `colour-reach` colours towards the end as the music goes higher, towards the start as it goes lower |
+| `colour` | How high the vocals, leads and chords sit, and the beat | Swells once every two beats (`colour-swell`), and moves along the palette: up to `colour-reach` colours towards the end as the music goes higher, towards the start as it goes lower |
 | `pulse` | The beat | The classic pulse travelling across the zone, its palette turning with the treble |
 
 `["pulse"]` gives the classic show on every light. Without live audio, or with `reactive.enabled = false`, every light pulses. Energy and big hits reach every light whatever its role.
@@ -240,11 +240,13 @@ With live audio, each light has a job, set by `reactive.roles` and repeated acro
 
 The kick is heard as a jump in the power between about 40 and 130 Hz. This is raw power, not the compressed onset strength the beat tracker uses: on the six songs recorded through BlackHole, the compressed low end rose about equally on every sixteenth, because dance tracks duck the bass on each kick and it swells back in between, while the raw power landed mostly on the beat. Each sixteenth's average power is learnt over about six bars, and a sixteenth lights in proportion to how far it stands above the typical sixteenth of the bar. A shorter average over the last bar or two scales the whole pattern, so when the kick drops out for a breakdown the rhythm lights fade within a few bars, and come back when it returns. Until a full bar has been heard after locking on, they pulse on every beat. The six recorded songs are four-on-the-floor dance tracks, so there the pattern is mostly a kick on every beat; music with a sparser or syncopated kick shows more of a pattern.
 
+**Colour lights swell at half the tempo.** A swell rises slowly over 45% of its two beats, holds for 10%, then fades with the same curve as the pulse, peaking on every other beat. Its brightness runs from a quarter of the colour's own up to the colour's own, without the pulse's boost: boosted brightness is capped at full, which would flatten the top of the swell into a plateau and make the slow rise look quick. With a live beat, the swell is timed by the beat count from locking on, so it stays on the same beats as the tracker re-estimates; without one, it follows the same timing as the pulse.
+
 **Colour lights follow the pitch.** For each frame, `OnsetDetector` finds where the sound between about 300 Hz and 4 kHz is centred, in octaves: below that range are the kick and bass, above it the hi-hats. The tracker smooths it over about 0.4 seconds and compares it with what's usual for the track over the last 20 seconds or so, giving a value from -1 (well below usual) to 1 (well above), where a typical move away from usual is about 0.4. It reflects where the music sits rather than which notes are played: a higher melody or a brighter sound both raise it.
 
 The colour light's place along the palette blends neighbouring palette colours round the colour wheel (`RGB.turnTowards`), so the colours in between stay as vivid as the palette's own, and it stops at either end of the palette rather than wrapping round. With an analogous palette (-30°, base, +30°) and the default reach, the light whose colour is the base turns to +30° at the top and -30° at the bottom; the lights at either end of the palette move only one way.
 
-The tests cover each part: `Groove` learns where the kicks fall wherever in the grid it starts, fades within a few bars when they stop, and stays between 0 and 1 for any input; a groove with a full kick on every beat gives exactly the beat pulse, and a kick on one sixteenth peaks on it and is dark half a bar later; on generated drums, the tracker learns a kick on every beat and on every other beat, and counts beats on without a jump through every re-estimate; a pure tone's pitch is its frequency, and pitch rises and falls as a tone moves; colour lights hold steady whatever the pulse, and pulse lights are unchanged by what the other lights do.
+The tests cover each part: `Groove` learns where the kicks fall wherever in the grid it starts, fades within a few bars when they stop, and stays between 0 and 1 for any input; a groove with a full kick on every beat gives exactly the beat pulse, and a kick on one sixteenth peaks on it and is dark half a bar later; on generated drums, the tracker learns a kick on every beat and on every other beat, and counts beats on without a jump through every re-estimate; a pure tone's pitch is its frequency, and pitch rises and falls as a tone moves; colour lights rest until their swell starts to rise, peak on the beat and keep their place along the palette throughout, and pulse lights are unchanged by what the other lights do.
 
 ## 5. Pause
 
@@ -303,7 +305,9 @@ light-show {
 | `reactive.quietest`, `reactive.loudest` | `0.35`, `1.6` | Brightness range as the energy changes |
 | `reactive.roles` | `["rhythm", "colour"]` | Each light's [role](#light-roles), repeated across the zone in channel order |
 | `reactive.colour-reach` | `1.0` | How many palette colours the colour lights move at the highest or lowest pitch |
-| `reactive.colour-glow` | `0.3` | How bright colour lights glow, from a pulse's rest (0) to its peak (1) |
+| `reactive.colour-swell.beats` | `2` | Colour lights swell once every this many beats, peaking on the beat |
+| `reactive.colour-swell.attack`, `.sustain`, `.decay-curve` | `0.45`, `0.1`, `2.0` | The swell's shape, as for the pulse: a slow rise, a brief hold, then the fade |
+| `reactive.colour-swell.rest-level`, `.peak-boost` | `0.25`, `0.75` | Brightness between swells, and how much the peak adds, as multiples of the colour's own |
 | `reactive.colour-shift` | `25` | Degrees the palette of pulse lights turns with the treble |
 | `reactive.flash`, `reactive.flash-decay-ms` | `0.7`, `200` | How far a big hit flashes towards white, and how fast it fades |
 | `reactive.hit-ratio` | `1.15` | How much louder than the last few seconds counts as a big hit |

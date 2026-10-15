@@ -193,7 +193,7 @@ class SyncEngineRunSpec extends CatsEffectSuite {
     }
   }
 
-  test("with live audio, rhythm lights pulse together on the live beat and colour lights hold a steady glow") {
+  test("with live audio, rhythm lights pulse together on the live beat and colour lights swell every other beat") {
     val settings = LightShowConfig()
     run(Setup(audio = Stream.emit(AudioReading(Some(liveBeat))) ++ Stream.never[IO]), 5.seconds).map { case (frames, show, _) =>
       val checked = playingFrames(frames)
@@ -205,8 +205,12 @@ class SyncEngineRunSpec extends CatsEffectSuite {
           assertEquals(f.updates(i).color, show.palette.getColor(i).scaleBrightness(Pulse.brightness(level, settings.pulse)), s"light $i at $t")
         }
       }
-      roles.zipWithIndex.filter(_._1 == LightRole.Colour).foreach { (_, i) =>
-        assertEquals(checked.map(_._2.updates(i).color).distinct.size, 1, s"light $i")
+      val swell = settings.reactive.colourSwell
+      checked.foreach { (t, f) =>
+        val level = Pulse.onBeat(liveBeat.beatsAt(t + settings.audio.offsetMs.millis) / swell.beats, swell.shape)
+        roles.zipWithIndex.filter(_._1 == LightRole.Colour).foreach { (_, i) =>
+          assertEquals(f.updates(i).color, show.palette.along(i, 0).scaleBrightness(Pulse.brightness(level, swell.shape)), s"light $i at $t")
+        }
       }
     }
   }

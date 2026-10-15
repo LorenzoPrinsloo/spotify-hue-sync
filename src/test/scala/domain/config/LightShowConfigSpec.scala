@@ -61,7 +61,8 @@ class LightShowConfigSpec extends FunSuite {
       "light-show.pause.fade-out-ms = -5",
       "light-show.reactive.roles = []",
       "light-show.reactive.roles = [\"rhythm\", \"strobe\"]",
-      "light-show.reactive.colour-glow = 1.5",
+      "light-show.reactive.colour-swell.beats = 0",
+      "light-show.reactive.colour-swell.attack = 0.95",
       "light-show.reactive.colour-reach = -1"
     )
     invalid.foreach(c => assert(load(c).isLeft, c))
@@ -96,6 +97,10 @@ class LightShowConfigSpec extends FunSuite {
       load("light-show.reactive.roles = [\"pulse\", \"Rhythm\", \"color\", \"colour\"]").map(_.lightShow.reactive.roles),
       Right(List(LightRole.Pulse, LightRole.Rhythm, LightRole.Colour, LightRole.Colour))
     )
+  }
+
+  test("the colour swell can be tuned, keeping the defaults for the rest") {
+    assertEquals(load("light-show.reactive.colour-swell.beats = 4").map(_.lightShow.reactive.colourSwell), Right(SwellSettings(beats = 4)))
   }
 
   test("an unknown beat source or an impossible tempo range is rejected") {

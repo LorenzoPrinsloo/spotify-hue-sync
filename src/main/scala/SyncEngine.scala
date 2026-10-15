@@ -154,21 +154,27 @@ object SyncEngine:
    *  - a pulse light peaks `stagger` of a pulse after light i - 1 (light 0 on every whole pulse), so the pulse travels
    *    across the zone, and its hue turns with the treble;
    *  - a rhythm light pulses with the bar's kick pattern, or on every pulse until there's a live beat;
-   *  - a colour light glows steadily and moves along the palette as the music goes higher or lower.
+   *  - a colour light swells once every `swell.beats` beats, peaking on the beat, and moves along the palette as the
+   *    music goes higher or lower.
    * The effects scale the brightness and push lights towards white for flashes and sparkles.
    */
   def pulseFrame(zone: Zone, palette: Palette, pulses: Double, settings: PulseSettings, effects: Effects = Effects.neutral): Frame = {
     val updates = zone.channels.zipWithIndex.map { (channel, i) =>
-      val (level, colour) = effects.roleOf(i) match {
+      val (brightness, colour) = effects.roleOf(i) match {
         case LightRole.Pulse =>
           val own = palette.getColor(i)
-          (Pulse.onBeat(pulses - i * settings.stagger, settings), if (effects.hueShift == 0) own else own.rotateHue(effects.hueShift))
+          val level = Pulse.onBeat(pulses - i * settings.stagger, settings)
+          (Pulse.brightness(level, settings, effects.intensity), if (effects.hueShift == 0) own else own.rotateHue(effects.hueShift))
         case LightRole.Rhythm =>
-          (effects.rhythm.fold(Pulse.onBeat(pulses, settings))(r => Pulse.rhythm(r.groove, r.beats, settings)), palette.getColor(i))
+          val level = effects.rhythm.fold(Pulse.onBeat(pulses, settings))(r => Pulse.rhythm(r.groove, r.beats, settings))
+          (Pulse.brightness(level, settings, effects.intensity), palette.getColor(i))
         case LightRole.Colour =>
-          (effects.glow, palette.along(i, effects.paletteShift))
+          // Counted along the beat grid when there's a live beat, so every other beat stays the same beat as the tracker re-estimates.
+          val beats = effects.rhythm.fold(pulses)(_.beats)
+          val shape = effects.swell.shape
+          (Pulse.brightness(Pulse.onBeat(beats / effects.swell.beats, shape), shape, effects.intensity), palette.along(i, effects.paletteShift))
       }
-      val lit = colour.scaleBrightness(Pulse.brightness(level, settings, effects.intensity))
+      val lit = colour.scaleBrightness(brightness)
       val white = effects.whiteFor(i)
       LightUpdate(channel, if (white <= 0) lit else lit.mix(White, white))
     }

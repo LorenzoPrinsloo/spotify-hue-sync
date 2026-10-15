@@ -131,7 +131,7 @@ classDiagram
         roles: Vector~LightRole~
         rhythm: Option~Rhythm~
         paletteShift: Double
-        glow: Double
+        swell: SwellSettings
         +at(now, reading, lights, settings)$ Effects
     }
     class Renderer {
