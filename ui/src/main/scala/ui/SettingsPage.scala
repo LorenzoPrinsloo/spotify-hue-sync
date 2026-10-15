@@ -76,8 +76,18 @@ final class SettingsPage {
 
   private def marked(key: String): Modifier[HtmlElement] = cls("waiting") <-- waiting.map(_.contains(key))
 
-  private def section(s: Section): HtmlElement =
-    div(cls := "section", h2(s.title), p(cls := "intro", s.intro), s.controls.map(control), s.sliders.map(slider))
+  private def section(s: Section): HtmlElement = {
+    val unused = draft.signal.map(_.flatMap(s.unused))
+    div(
+      cls := "section",
+      cls("unused") <-- unused.map(_.isDefined),
+      h2(s.title),
+      p(cls := "intro", s.intro),
+      child.maybe <-- unused.map(_.map(reason => p(cls := "unused-note", reason))),
+      s.controls.map(control),
+      s.sliders.map(slider)
+    )
+  }
 
   private def slider(s: Slider): HtmlElement = {
     val current = draft.signal.map(_.fold(s.min)(s.get))

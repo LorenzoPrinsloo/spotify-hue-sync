@@ -339,6 +339,7 @@ The config is validated when the app starts: an unknown palette name, an invalid
 
 While the app runs, `http://127.0.0.1:7071` shows every light-show setting as a slider, switch or picker, for trying settings out without editing the config file.
 
+- **Grouped by the lights they change.** Settings for rhythm and pulse lights, pulse lights only, colour lights, sparkles (colour and pulse lights) and all lights each have their own section. A section whose lights aren't in the role pattern is dimmed, with a note saying its settings change nothing right now; with the default pattern of rhythm and colour, that's the pulse-light section.
 - **See the song's palette.** The palette section shows the colours the playing song got, in the order the lights take them.
 - **Choose the area.** A picker lists the bridge's entertainment areas with their rooms and number of lights; moving the show to another happens at the next song, like any other change.
 - **Changes wait for the next song.** Each change is saved a moment after you stop moving the control, as the settings for the next song. When a new track starts, the engine takes them up along with the track's palette, and keeps them until the track changes. Nothing is read from the page while frames are drawn, and a song never changes settings part way through. Settings still waiting are marked, and **Apply now** takes them up straight away, keeping the palette unless its type changed.

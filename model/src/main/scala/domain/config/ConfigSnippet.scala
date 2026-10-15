@@ -18,6 +18,9 @@ object ConfigSnippet {
     leaves(to.asJson).filterNot((path, value) => before.get(path).contains(value))
   }
 
+  /** Every setting's path in the config file, in the order the settings are declared. */
+  def paths(settings: LightShowConfig): List[String] = leaves(settings.asJson).map(_._1)
+
   private def leaves(json: Json, path: String = ""): List[(String, Json)] =
     json.asObject.fold(List(path -> json)) { fields =>
       fields.toList.flatMap((key, value) => leaves(value, if (path.isEmpty) kebab(key) else s"$path.${kebab(key)}"))

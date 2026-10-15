@@ -1,6 +1,7 @@
 package ui
 
-import domain.config.{AudioSettings, LightShowConfig, PulseSettings, ReactiveSettings, SwellSettings}
+import domain.config.{AudioSettings, BeatSource, LightShowConfig, PulseSettings, ReactiveSettings, SwellSettings}
+import domain.engine.LightRole
 
 /** Every setting on the page, grouped as it's shown. */
 object Sections {
@@ -21,6 +22,19 @@ object Sections {
 
   private def millis(v: Double): Long = math.round(v)
 
+  /**
+   * The roles the lights actually have: the role pattern while the show reacts to live audio, otherwise the classic
+   * pulse on every light.
+   */
+  def rolesPlaying(c: LightShowConfig): Set[LightRole] =
+    if (reacting(c)) c.reactive.roles.toSet else Set(LightRole.Pulse)
+
+  private def reacting(c: LightShowConfig): Boolean = c.reactive.enabled && c.beatSource == BeatSource.Audio
+
+  /** Unused, with `reason`, while no light plays any of `roles`. */
+  private def unlessPlaying(roles: Set[LightRole], reason: String): LightShowConfig => Option[String] =
+    c => Option.when(rolesPlaying(c).intersect(roles).isEmpty)(s"$reason, so these change nothing right now.")
+
   val area: Section = Section(
     title = "Entertainment area",
     intro = "Where the show plays. The bridge plays one area at a time; when the show moves, the old area's lights go back to how they were.",
@@ -30,23 +44,96 @@ object Sections {
 
   val roles: Section = Section(
     title = "Light roles",
-    intro = "What each light does. The pattern repeats across your lights in channel order.",
-    controls = List(Control.Roles),
-    sliders = List(
-      Slider(
-        key = "reactive.colour-reach",
-        label = "Colour reach",
-        help = "How many palette colours the colour lights move when the music is at its highest or lowest.",
-        min = 0, max = 3, step = 0.1,
-        get = _.reactive.colourReach,
-        set = reactive((r, v) => r.copy(colourReach = v))
-      )
-    )
+    intro = "What each light does. The pattern repeats across your lights in channel order. The sections below say which lights they change.",
+    controls = List(Control.Roles, Control.Reactions),
+    sliders = Nil
   )
 
-  val colourSwell: Section = Section(
-    title = "Colour swell",
-    intro = "How the colour lights swell: a slow rise, a brief hold at the peak, then a fade.",
+  val rhythmAndPulse: Section = Section(
+    title = "Rhythm and pulse lights",
+    intro = "The shape of each pulse on the rhythm and pulse lights.",
+    controls = Nil,
+    sliders = List(
+      Slider(
+        key = "beats-per-pulse",
+        label = "Beats per pulse",
+        help = "Pulse once every this many beats. Rhythm lights follow the kick pattern instead once there's a live beat.",
+        min = 0.5, max = 4, step = 0.5,
+        get = _.beatsPerPulse,
+        set = (c, v) => c.copy(beatsPerPulse = v)
+      ),
+      Slider(
+        key = "pulse.attack",
+        label = "Rise",
+        help = "Fraction of a pulse spent rising.",
+        min = 0, max = 0.9, step = 0.01,
+        get = _.pulse.attack,
+        set = pulse((p, v) => p.copy(attack = v))
+      ),
+      Slider(
+        key = "pulse.sustain",
+        label = "Hold",
+        help = "Fraction of a pulse spent at full brightness.",
+        min = 0, max = 0.9, step = 0.01,
+        get = _.pulse.sustain,
+        set = pulse((p, v) => p.copy(sustain = v))
+      ),
+      Slider(
+        key = "pulse.decay-curve",
+        label = "Fade curve",
+        help = "Shape of the fade after the peak; higher fades faster.",
+        min = 0.5, max = 5, step = 0.1,
+        get = _.pulse.decayCurve,
+        set = pulse((p, v) => p.copy(decayCurve = v))
+      ),
+      Slider(
+        key = "pulse.rest-level",
+        label = "Rest brightness",
+        help = "Brightness between pulses, as a multiple of the colour's own.",
+        min = 0, max = 1, step = 0.01,
+        get = _.pulse.restLevel,
+        set = pulse((p, v) => p.copy(restLevel = v))
+      ),
+      Slider(
+        key = "pulse.peak-boost",
+        label = "Peak boost",
+        help = "How much the peak adds on top of the rest brightness.",
+        min = 0, max = 4, step = 0.05,
+        get = _.pulse.peakBoost,
+        set = pulse((p, v) => p.copy(peakBoost = v))
+      )
+    ),
+    unused = unlessPlaying(Set(LightRole.Rhythm, LightRole.Pulse), "No light is a rhythm or pulse light")
+  )
+
+  val pulseLights: Section = Section(
+    title = "Pulse lights",
+    intro = "The classic pulse, travelling across the zone.",
+    controls = Nil,
+    sliders = List(
+      Slider(
+        key = "pulse.stagger",
+        label = "Wave stagger",
+        help = "How far behind the previous light each one pulses, in pulses.",
+        min = 0, max = 0.5, step = 0.01,
+        get = _.pulse.stagger,
+        set = pulse((p, v) => p.copy(stagger = v))
+      ),
+      Slider(
+        key = "reactive.colour-shift",
+        label = "Treble colour turn (°)",
+        help = "How far the palette turns as the treble picks up or drops away.",
+        min = 0, max = 90, step = 1,
+        get = _.reactive.colourShift,
+        set = reactive((r, v) => r.copy(colourShift = v))
+      )
+    ),
+    unused = unlessPlaying(Set(LightRole.Pulse), "No light is a pulse light")
+  )
+
+  val colourLights: Section = Section(
+    title = "Colour lights",
+    intro = "How the colour lights swell: a slow rise, a brief hold at the peak, then a fade. And how far they move along the palette as the music goes higher or lower.",
     controls = Nil,
     sliders = List(
       Slider(
@@ -96,78 +183,58 @@ object Sections {
         min = 0, max = 2, step = 0.05,
         get = _.reactive.colourSwell.peakBoost,
         set = swell((s, v) => s.copy(peakBoost = v))
+      ),
+      Slider(
+        key = "reactive.colour-reach",
+        label = "Colour reach",
+        help = "How many palette colours the colour lights move when the music is at its highest or lowest.",
+        min = 0, max = 3, step = 0.1,
+        get = _.reactive.colourReach,
+        set = reactive((r, v) => r.copy(colourReach = v))
       )
-    )
+    ),
+    unused = unlessPlaying(Set(LightRole.Colour), "No light is a colour light")
   )
 
-  val pulseShape: Section = Section(
-    title = "Pulse",
-    intro = "The shape of each pulse on the rhythm and pulse lights.",
+  val sparkles: Section = Section(
+    title = "Sparkles: colour and pulse lights",
+    intro = "A hi-hat twinkles one colour or pulse light towards white.",
     controls = Nil,
     sliders = List(
       Slider(
-        key = "beats-per-pulse",
-        label = "Beats per pulse",
-        help = "Pulse once every this many beats.",
-        min = 0.5, max = 4, step = 0.5,
-        get = _.beatsPerPulse,
-        set = (c, v) => c.copy(beatsPerPulse = v)
+        key = "reactive.sparkle",
+        label = "Sparkle",
+        help = "How far a hi-hat twinkles a light towards white.",
+        min = 0, max = 1, step = 0.05,
+        get = _.reactive.sparkle,
+        set = reactive((r, v) => r.copy(sparkle = v))
       ),
       Slider(
-        key = "pulse.attack",
-        label = "Rise",
-        help = "Fraction of a pulse spent rising.",
-        min = 0, max = 0.9, step = 0.01,
-        get = _.pulse.attack,
-        set = pulse((p, v) => p.copy(attack = v))
+        key = "reactive.sparkle-decay-ms",
+        label = "Sparkle fade (ms)",
+        help = "How fast a sparkle fades.",
+        min = 20, max = 500, step = 10,
+        get = _.reactive.sparkleDecayMs.toDouble,
+        set = reactive((r, v) => r.copy(sparkleDecayMs = millis(v)))
       ),
       Slider(
-        key = "pulse.sustain",
-        label = "Hold",
-        help = "Fraction of a pulse spent at full brightness.",
-        min = 0, max = 0.9, step = 0.01,
-        get = _.pulse.sustain,
-        set = pulse((p, v) => p.copy(sustain = v))
-      ),
-      Slider(
-        key = "pulse.decay-curve",
-        label = "Fade curve",
-        help = "Shape of the fade after the peak; higher fades faster.",
-        min = 0.5, max = 5, step = 0.1,
-        get = _.pulse.decayCurve,
-        set = pulse((p, v) => p.copy(decayCurve = v))
-      ),
-      Slider(
-        key = "pulse.rest-level",
-        label = "Rest brightness",
-        help = "Brightness between pulses, as a multiple of the colour's own.",
-        min = 0, max = 1, step = 0.01,
-        get = _.pulse.restLevel,
-        set = pulse((p, v) => p.copy(restLevel = v))
-      ),
-      Slider(
-        key = "pulse.peak-boost",
-        label = "Peak boost",
-        help = "How much the peak adds on top of the rest brightness.",
-        min = 0, max = 4, step = 0.05,
-        get = _.pulse.peakBoost,
-        set = pulse((p, v) => p.copy(peakBoost = v))
-      ),
-      Slider(
-        key = "pulse.stagger",
-        label = "Wave stagger",
-        help = "On pulse lights, how far behind the previous light each one pulses, in pulses.",
-        min = 0, max = 0.5, step = 0.01,
-        get = _.pulse.stagger,
-        set = pulse((p, v) => p.copy(stagger = v))
+        key = "reactive.sparkle-ratio",
+        label = "Sparkle threshold",
+        help = "How far above the usual treble counts as a sparkle.",
+        min = 1.5, max = 10, step = 0.5,
+        get = _.reactive.sparkleRatio,
+        set = reactive((r, v) => r.copy(sparkleRatio = v))
       )
-    )
+    ),
+    unused = c =>
+      if (!reacting(c)) Some("The show isn't reacting to the music, so these change nothing right now.")
+      else unlessPlaying(Set(LightRole.Colour, LightRole.Pulse), "No light is a colour or pulse light")(c)
   )
 
-  val reactions: Section = Section(
-    title = "Reacting to the music",
-    intro = "How brightness, flashes and sparkles follow what the music is doing.",
-    controls = List(Control.Reactions),
+  val allLights: Section = Section(
+    title = "All lights",
+    intro = "How brightness and flashes follow the music, the colours each song gets, and what the lights do while nothing plays.",
+    controls = List(Control.Palette, Control.SongPalette, Control.RestingColour),
     sliders = List(
       Slider(
         key = "reactive.quietest",
@@ -210,36 +277,12 @@ object Sections {
         set = reactive((r, v) => r.copy(hitRatio = v))
       ),
       Slider(
-        key = "reactive.sparkle",
-        label = "Sparkle",
-        help = "How far a hi-hat twinkles a light towards white.",
-        min = 0, max = 1, step = 0.05,
-        get = _.reactive.sparkle,
-        set = reactive((r, v) => r.copy(sparkle = v))
-      ),
-      Slider(
-        key = "reactive.sparkle-decay-ms",
-        label = "Sparkle fade (ms)",
-        help = "How fast a sparkle fades.",
-        min = 20, max = 500, step = 10,
-        get = _.reactive.sparkleDecayMs.toDouble,
-        set = reactive((r, v) => r.copy(sparkleDecayMs = millis(v)))
-      ),
-      Slider(
-        key = "reactive.sparkle-ratio",
-        label = "Sparkle threshold",
-        help = "How far above the usual treble counts as a sparkle.",
-        min = 1.5, max = 10, step = 0.5,
-        get = _.reactive.sparkleRatio,
-        set = reactive((r, v) => r.copy(sparkleRatio = v))
-      ),
-      Slider(
-        key = "reactive.colour-shift",
-        label = "Treble colour turn (°)",
-        help = "On pulse lights, how far the palette turns as the treble picks up or drops away.",
-        min = 0, max = 90, step = 1,
-        get = _.reactive.colourShift,
-        set = reactive((r, v) => r.copy(colourShift = v))
+        key = "pause.fade-out-ms",
+        label = "Fade to rest (ms)",
+        help = "How long the lights take to fade to the resting colour when the music stops.",
+        min = 0, max = 10000, step = 100,
+        get = _.pause.fadeOutMs.toDouble,
+        set = (c, v) => c.copy(pause = c.pause.copy(fadeOutMs = millis(v)))
       )
     )
   )
@@ -300,21 +343,5 @@ object Sections {
     )
   )
 
-  val palette: Section = Section(
-    title = "Palette and pause",
-    intro = "The colours each new song gets, and what the lights do while nothing plays.",
-    controls = List(Control.Palette, Control.SongPalette, Control.RestingColour),
-    sliders = List(
-      Slider(
-        key = "pause.fade-out-ms",
-        label = "Fade to rest (ms)",
-        help = "How long the lights take to fade to the resting colour when the music stops.",
-        min = 0, max = 10000, step = 100,
-        get = _.pause.fadeOutMs.toDouble,
-        set = (c, v) => c.copy(pause = c.pause.copy(fadeOutMs = millis(v)))
-      )
-    )
-  )
-
-  val all: List[Section] = List(area, roles, colourSwell, pulseShape, reactions, timing, palette)
+  val all: List[Section] = List(area, roles, rhythmAndPulse, pulseLights, colourLights, sparkles, allLights, timing)
 }

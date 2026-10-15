@@ -1,6 +1,7 @@
 package ui
 
-import domain.config.{ConfigSnippet, LightShowConfig}
+import domain.config.{BeatSource, ConfigSnippet, LightShowConfig}
+import domain.engine.LightRole
 
 class SectionsSpec extends munit.FunSuite {
 
@@ -28,5 +29,25 @@ class SectionsSpec extends munit.FunSuite {
 
   test("no setting is on the page twice") {
     assertEquals(sliders.map(_.key).distinct, sliders.map(_.key))
+  }
+
+  test("every setting is on the page exactly once") {
+    val shown = Sections.all.flatMap(section => section.controls.flatMap(_.keys) ++ section.sliders.map(_.key))
+    assertEquals(shown.sorted, ConfigSnippet.paths(defaults).sorted)
+  }
+
+  test("a section is dimmed exactly when no light plays the roles it's for, or the show isn't reacting") {
+    val listening = defaults.copy(beatSource = BeatSource.Audio)
+    def withRoles(roles: LightRole*) = listening.copy(reactive = listening.reactive.copy(roles = roles.toList))
+    def unused(c: LightShowConfig) = Sections.all.filter(_.unused(c).isDefined).map(_.title)
+    val cases = List(
+      withRoles(LightRole.Rhythm, LightRole.Colour) -> List("Pulse lights"),
+      withRoles(LightRole.Pulse) -> List("Colour lights"),
+      withRoles(LightRole.Rhythm) -> List("Pulse lights", "Colour lights", "Sparkles: colour and pulse lights"),
+      withRoles(LightRole.Colour) -> List("Rhythm and pulse lights", "Pulse lights"),
+      listening.copy(reactive = listening.reactive.copy(enabled = false)) -> List("Colour lights", "Sparkles: colour and pulse lights"),
+      defaults -> List("Colour lights", "Sparkles: colour and pulse lights")
+    )
+    cases.foreach((settings, expected) => assertEquals(unused(settings), expected, settings.reactive.roles.toString))
   }
 }
