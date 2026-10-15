@@ -1,5 +1,6 @@
 import domain.config.PulseSettings
-import domain.engine.{Effects, Palette, Pulse, RGB, Sparkle}
+import beat.Groove
+import domain.engine.{Effects, LightRole, Palette, Pulse, RGB, Rhythm, Sparkle}
 import domain.hue.Zone
 import munit.ScalaCheckSuite
 import org.scalacheck.Gen
@@ -118,6 +119,44 @@ class SyncEnginePulseSpec extends ScalaCheckSuite {
       val plain = SyncEngine.pulseFrame(sevenLights, palette, p, settings)
       val sparkled = SyncEngine.pulseFrame(sevenLights, palette, p, settings, Effects(sparkle = Some(Sparkle(light, 0.8))))
       plain.updates.zip(sparkled.updates).zipWithIndex.forall { case ((a, b), i) => i == light || a == b }
+    }
+  }
+
+  property("a rhythm light peaks on the sixteenths of the kick pattern, and rests between them") {
+    forAll(rgb, Gen.choose(0, Groove.Steps - 1), Gen.choose(-50, 50)) { (c, step, bar) =>
+      val groove = Vector.tabulate(Groove.Steps)(i => if (i == step) 1.0 else 0.0)
+      val on = bar * Groove.BeatsPerBar + step.toDouble / Groove.StepsPerBeat
+      def colourAt(beats: Double) =
+        SyncEngine.pulseFrame(Zone(zoneId, List(0)), Palette(Vector(c)), 0.6, settings, Effects(roles = Vector(LightRole.Rhythm), rhythm = Some(Rhythm(groove, beats)))).updates.head.color
+      colourAt(on) == c.scaleBrightness(Pulse.brightness(1, settings)) &&
+        colourAt(on + Groove.BeatsPerBar / 2.0) == c.scaleBrightness(Pulse.brightness(0, settings))
+    }
+  }
+
+  property("without a beat, rhythm lights pulse together on every pulse rather than in a wave") {
+    forAll(channels, palettes, pulses) { (ids, palette, p) =>
+      val effects = Effects(roles = Vector.fill(ids.size)(LightRole.Rhythm))
+      SyncEngine.pulseFrame(Zone(zoneId, ids), palette, p, settings, effects).updates.zipWithIndex.forall { (u, i) =>
+        u.color == palette.getColor(i).scaleBrightness(Pulse.brightness(Pulse.onBeat(p, settings), settings))
+      }
+    }
+  }
+
+  property("colour lights glow steadily whatever the pulse, at their place along the palette") {
+    forAll(channels, palettes, pulses, pulses, Gen.choose(-2.0, 2.0), Gen.choose(0.0, 1.0)) { (ids, palette, p, q, shift, glow) =>
+      val effects = Effects(roles = Vector.fill(ids.size)(LightRole.Colour), paletteShift = shift, glow = glow)
+      val now = SyncEngine.pulseFrame(Zone(zoneId, ids), palette, p, settings, effects)
+      now == SyncEngine.pulseFrame(Zone(zoneId, ids), palette, q, settings, effects) &&
+        now.updates.zipWithIndex.forall((u, i) => u.color == palette.along(i, shift).scaleBrightness(Pulse.brightness(glow, settings)))
+    }
+  }
+
+  property("pulse lights do the classic travelling pulse whatever the other lights do") {
+    forAll(Gen.listOfN(7, Gen.oneOf(LightRole.values.toList)), palettes, pulses) { (roles, palette, p) =>
+      val effects = Effects(roles = roles.toVector, rhythm = Some(Rhythm(Groove.Prior, p + 0.3)), paletteShift = 0.7, glow = 0.4)
+      val mixed = SyncEngine.pulseFrame(sevenLights, palette, p, settings, effects).updates
+      val classic = SyncEngine.pulseFrame(sevenLights, palette, p, settings).updates
+      roles.indices.filter(roles(_) == LightRole.Pulse).forall(i => mixed(i) == classic(i))
     }
   }
 

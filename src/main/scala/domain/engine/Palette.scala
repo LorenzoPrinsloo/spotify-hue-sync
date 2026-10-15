@@ -47,5 +47,16 @@ object Palette {
     /** 0-based circular index: light 0 gets the first colour, and the palette repeats after the last. */
     def getColor(index: Int): RGB =
       pal.colors(Math.floorMod(index, pal.colors.size))
+
+    /**
+     * The colour `shift` palette colours on from colour `index` (negative is back), blending between neighbouring
+     * colours. It stops at either end of the palette rather than wrapping round.
+     */
+    def along(index: Int, shift: Double): RGB = {
+      val last = pal.colors.size - 1
+      val position = math.max(0.0, math.min(last.toDouble, Math.floorMod(index, pal.colors.size) + shift))
+      val from = math.floor(position).toInt
+      if (from >= last) pal.colors(last) else pal.colors(from).turnTowards(pal.colors(from + 1), position - from)
+    }
   }
 }

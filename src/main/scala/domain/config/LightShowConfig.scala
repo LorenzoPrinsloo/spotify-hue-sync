@@ -1,6 +1,6 @@
 package domain.config
 
-import domain.engine.{PaletteType, RGB}
+import domain.engine.{LightRole, PaletteType, RGB}
 import pureconfig.ConfigReader
 import pureconfig.error.CannotConvert
 
@@ -40,10 +40,16 @@ case class AudioSettings(
 /**
  * How the show reacts to live audio, beyond the beat.
  *
- * Brightness follows the music's energy, between `quietest` and `loudest` times normal. The palette turns by up to
- * `colourShift` degrees as the treble picks up or drops away. A big hit (louder than anything in the last few
- * seconds by `hitRatio`) flashes every light towards white by `flash`, fading over `flashDecayMs`; a treble onset
- * (`sparkleRatio` times the usual background) twinkles one light by `sparkle`, fading over `sparkleDecayMs`.
+ * Each light gets a job from `roles`, repeated across the zone in channel order. Rhythm lights pulse with the bar's
+ * kick pattern. Colour lights glow at
+ * `colourGlow` of a pulse's peak and move up to `colourReach` palette colours along the palette as the music goes
+ * higher or lower. Pulse lights do the classic travelling pulse, their palette turning by up to `colourShift`
+ * degrees as the treble picks up or drops away.
+ *
+ * Brightness follows the music's energy, between `quietest` and `loudest` times normal. A big hit (louder than
+ * anything in the last few seconds by `hitRatio`) flashes every light towards white by `flash`, fading over
+ * `flashDecayMs`; a treble onset (`sparkleRatio` times the usual background) twinkles one light that isn't a rhythm
+ * light by `sparkle`, fading over `sparkleDecayMs`.
  */
 case class ReactiveSettings(
   enabled: Boolean = true,
@@ -55,7 +61,10 @@ case class ReactiveSettings(
   hitRatio: Double = 1.15,
   sparkle: Double = 0.6,
   sparkleDecayMs: Long = 100,
-  sparkleRatio: Double = 4.0
+  sparkleRatio: Double = 4.0,
+  roles: List[LightRole] = List(LightRole.Rhythm, LightRole.Colour),
+  colourReach: Double = 1.0,
+  colourGlow: Double = 0.3
 )
 
 case class LightShowConfig(
@@ -90,7 +99,10 @@ object LightShowConfig {
     Option.when(c.reactive.quietest <= 0 || c.reactive.loudest < c.reactive.quietest)("reactive.quietest must be positive and no more than reactive.loudest"),
     Option.when(c.reactive.flash < 0 || c.reactive.flash > 1 || c.reactive.sparkle < 0 || c.reactive.sparkle > 1)("reactive.flash and reactive.sparkle must be between 0 and 1"),
     Option.when(c.reactive.flashDecayMs <= 0 || c.reactive.sparkleDecayMs <= 0)("reactive.flash-decay-ms and reactive.sparkle-decay-ms must be positive"),
-    Option.when(c.reactive.hitRatio <= 1 || c.reactive.sparkleRatio <= 1)("reactive.hit-ratio and reactive.sparkle-ratio must be above 1")
+    Option.when(c.reactive.hitRatio <= 1 || c.reactive.sparkleRatio <= 1)("reactive.hit-ratio and reactive.sparkle-ratio must be above 1"),
+    Option.when(c.reactive.roles.isEmpty)("reactive.roles needs at least one role"),
+    Option.when(c.reactive.colourReach < 0)("reactive.colour-reach can't be negative"),
+    Option.when(c.reactive.colourGlow < 0 || c.reactive.colourGlow > 1)("reactive.colour-glow must be between 0 and 1")
     ).flatten
     if (problems.isEmpty) Right(c) else Left(problems.mkString("; "))
   }
@@ -102,6 +114,10 @@ object LightShowConfig {
   given ConfigReader[BeatSource] = ConfigReader[String].emap { name =>
     BeatSource.values.find(_.toString.equalsIgnoreCase(name.trim))
       .toRight(CannotConvert(name, "BeatSource", "expected spotify or audio"))
+  }
+
+  given ConfigReader[LightRole] = ConfigReader[String].emap { name =>
+    LightRole.parse(name).toRight(CannotConvert(name, "LightRole", "expected rhythm, colour or pulse"))
   }
 
   given ConfigReader[RGB] = ConfigReader[String].emap { hex =>

@@ -1,5 +1,6 @@
 package domain.engine
 
+import beat.Groove
 import domain.config.PulseSettings
 import munit.ScalaCheckSuite
 import org.scalacheck.Gen
@@ -60,6 +61,27 @@ class PulseSpec extends ScalaCheckSuite {
     forAll(pulseSettings, Gen.choose(-1000, 1000), Gen.choose(0.0, 0.999)) { (s, n, t) =>
       Pulse.onBeat(n.toDouble, s) > 1 - 1e-9 &&
         math.abs(Pulse.onBeat(n - s.attack * (1 - t), s) - t) < 1e-9
+    }
+  }
+
+  property("with a full kick on every beat, a rhythm light pulses exactly like the beat pulse") {
+    forAll(pulseSettings, Gen.choose(-1000.0, 1000.0)) { (s, beats) =>
+      math.abs(Pulse.rhythm(Groove.Prior, beats, s) - Pulse.onBeat(beats, s)) < 1e-9
+    }
+  }
+
+  property("a kick on one sixteenth peaks on it, as strong as its weight, and is dark half a bar later") {
+    forAll(pulseSettings, Gen.choose(0, Groove.Steps - 1), Gen.choose(0.0, 1.0), Gen.choose(-100, 100)) { (s, step, weight, bar) =>
+      val groove = Vector.tabulate(Groove.Steps)(i => if (i == step) weight else 0.0)
+      val on = bar * Groove.BeatsPerBar + step.toDouble / Groove.StepsPerBeat
+      math.abs(Pulse.rhythm(groove, on, s) - weight) < 1e-9 && Pulse.rhythm(groove, on + Groove.BeatsPerBar / 2.0, s) == 0.0
+    }
+  }
+
+  property("a rhythm light with no kicks stays dark, and never goes outside 0 to 1") {
+    forAll(pulseSettings, Gen.listOfN(Groove.Steps, Gen.choose(0.0, 1.0)), Gen.choose(-1000.0, 1000.0)) { (s, weights, beats) =>
+      val level = Pulse.rhythm(weights.toVector, beats, s)
+      Pulse.rhythm(Vector.fill(Groove.Steps)(0.0), beats, s) == 0.0 && level >= 0 && level <= 1
     }
   }
 

@@ -108,6 +108,23 @@ object RGB {
     def scaleBrightness(factor: Double): RGB =
       c.withBrightness(c.hsb(2) * factor)
 
+    /**
+     * Blend towards `other` round the colour wheel, the short way, with saturation and brightness in step: the colours
+     * in between stay as vivid as the two ends, where `mix` would grey them. 0 gives this colour, 1 gives `other`.
+     */
+    def turnTowards(other: RGB, t: Double): RGB = {
+      val k = math.max(0.0, math.min(1.0, t))
+      if (k == 0.0) c
+      else if (k == 1.0) other
+      else {
+        val Array(h1, s1, b1) = c.hsb
+        val Array(h2, s2, b2) = other.hsb
+        val turn = (h2 - h1 + 1.5f) % 1.0f - 0.5f
+        val hue = ((h1 + turn * k.toFloat) % 1.0f + 1.0f) % 1.0f
+        fromColor(getHSBColor(hue, (s1 + (s2 - s1) * k).toFloat, (b1 + (b2 - b1) * k).toFloat))
+      }
+    }
+
     /** Linear blend towards `other`; 0 gives this colour, 1 gives `other`. */
     def mix(other: RGB, t: Double): RGB = {
       val k = math.max(0.0, math.min(1.0, t))

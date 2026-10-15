@@ -2,7 +2,7 @@
 
 Syncs what's playing on Spotify to Philips Hue lights in real time.
 
-It polls Spotify for the current track, pulses on the beat (detected live from your audio, or from Spotify's tempo) using a colour palette built from colour theory (analogous, complementary, triadic, tetradic or monochromatic), and streams light frames to a Hue entertainment zone over DTLS. With live audio, the lights also follow the music's energy, flash on big hits and sparkle with the hi-hats. When the music stops, the lights fade to a resting colour.
+It polls Spotify for the current track, pulses on the beat (detected live from your audio, or from Spotify's tempo) using a colour palette built from colour theory (analogous, complementary, triadic, tetradic or monochromatic), and streams light frames to a Hue entertainment zone over DTLS. With live audio, the lights also follow the music's energy, flash on big hits and sparkle with the hi-hats, and split into rhythm lights that play the kick pattern on the beat and colour lights that move through the palette as the music goes higher or lower. When the music stops, the lights fade to a resting colour.
 
 Built with Scala 3, Cats Effect, fs2 and http4s.
 
@@ -44,4 +44,4 @@ sbt run
 sbt test
 ```
 
-Property-based tests (munit + ScalaCheck) cover the colour theory, every palette type, the pulse envelope, the beat tracker (against generated drum patterns), the pause fade, config loading and validation, and the Hue packet format. The Spotify and Hue clients are tested against fake HTTP servers, and the whole engine runs against a fake Spotify on Cats Effect's simulated clock.
+Property-based tests (munit + ScalaCheck) cover the colour theory, every palette type, the pulse envelope, the light roles, the beat tracker, kick pattern and pitch (against generated audio), the pause fade, config loading and validation, and the Hue packet format. The Spotify and Hue clients are tested against fake HTTP servers, and the whole engine runs against a fake Spotify on Cats Effect's simulated clock.

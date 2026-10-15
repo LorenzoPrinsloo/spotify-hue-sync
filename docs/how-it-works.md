@@ -151,8 +151,8 @@ flowchart LR
     D --> E[Score every beat grid<br/>60-180 BPM]
     E --> F[Tempo and beat time]
     F --> G[Pulses land on the beat]
-    C --> H[Energy, treble,<br/>big hits, sparkles]
-    H --> I[Brightness, colour<br/>and flashes]
+    C --> H[Energy, treble, big hits,<br/>sparkles, kick pattern, pitch]
+    H --> I[Brightness, colour,<br/>flashes and light roles]
 ```
 
 1. **Capture.** `AudioInput` reads 16-bit stereo audio from the input named in `audio.device` and mixes it to mono, 512 samples (about 12 ms) at a time. `CaptureClock` times each block by how many samples have arrived, anchored to the promptest read of the last 10 seconds, rather than by when the read returned: reads come back in bursts, and stamping audio that had been waiting with the time it was read made beats look up to 30 ms later than they were.
@@ -199,7 +199,7 @@ A property test checks that at the peak the hue never moves by more than 2°.
 
 ### The wave
 
-Light 0 peaks on the beat, and each light after it peaks `pulse.stagger` (0.15) of a beat after the one before, so the pulse travels across the zone instead of flashing all lights at once.
+Light 0 peaks on the beat, and each light after it peaks `pulse.stagger` (0.15) of a beat after the one before, so the pulse travels across the zone instead of flashing all lights at once. With live audio, the default [light roles](#light-roles) replace the wave with rhythm and colour lights; any light given the `pulse` role still travels with it.
 
 ![Each light's brightness over two beats, offset by 0.15 of a beat per light](images/pulse-wave.svg)
 
@@ -216,13 +216,35 @@ With live beat detection, the lights follow more than the beat. While it listens
 | Reaction | What the tracker hears | What the lights do |
 |---|---|---|
 | Energy | How loud the last second or two is, compared with the usual level over the last 20 seconds or so | Brightness scales with it, between `quietest` (0.35×) and `loudest` (1.6×), so a quiet verse glows and a chorus blazes |
-| Treble | How busy the hi-hats and cymbals are, compared with usual | The palette turns by up to `colour-shift` (25°) one way as the treble picks up, and the other way as it drops away |
+| Treble | How busy the hi-hats and cymbals are, compared with usual | The palette of [pulse lights](#light-roles) turns by up to `colour-shift` (25°) one way as the treble picks up, and the other way as it drops away |
 | Big hits | Loudness jumping above anything in the last 4 seconds by `hit-ratio` (1.15×), such as a crash or a drop | Every light flashes towards white by up to `flash`, fading over about `flash-decay-ms` |
-| Sparkles | A treble onset well above the treble background (`sparkle-ratio`), such as a hi-hat | One light, scattered across the zone, twinkles towards white by `sparkle`, fading over about `sparkle-decay-ms` |
+| Sparkles | A treble onset well above the treble background (`sparkle-ratio`), such as a hi-hat | One light that isn't a rhythm light, scattered across the zone, twinkles towards white by `sparkle`, fading over about `sparkle-decay-ms` |
 
-The usual level is only learnt while music plays, so a silence between songs doesn't drag it down. Nothing counts as a big hit or a sparkle until a few seconds of music have set the bar. `reactive.enabled = false` turns all four off, and with Spotify timing they don't apply.
+The usual level is only learnt while music plays, so a silence between songs doesn't drag it down. Nothing counts as a big hit or a sparkle until a few seconds of music have set the bar. `reactive.enabled = false` turns all four off, along with the light roles, and with Spotify timing they don't apply.
 
 The tests use generated drums: energy rises and falls with the loudness and settles at about 1 while the level stays the same; a crash is a big hit at the moment it happens, even on top of a kick, while a steady pattern has none; and hi-hats sparkle while kicks hardly ever do. `Effects.at` and `pulseFrame` are property-tested to keep every value in range for any reading and tuning.
+
+### Light roles
+
+With live audio, each light has a job, set by `reactive.roles` and repeated across the zone in channel order. The default, `["rhythm", "colour"]`, alternates them, so on a zone where each room's lights have neighbouring channels, every room gets one of each.
+
+| Role | What it follows | What it does |
+|---|---|---|
+| `rhythm` | The kick pattern of the bar | Pulses on the sixteenths where the kick hits, as hard as it usually hits there, all rhythm lights together. Until there's a live beat, it pulses on every beat |
+| `colour` | How high the vocals, leads and chords sit | Glows steadily at `colour-glow`, and moves along the palette: up to `colour-reach` colours towards the end as the music goes higher, towards the start as it goes lower |
+| `pulse` | The beat | The classic pulse travelling across the zone, its palette turning with the treble |
+
+`["pulse"]` gives the classic show on every light. Without live audio, or with `reactive.enabled = false`, every light pulses. Energy and big hits reach every light whatever its role.
+
+**Rhythm lights play the pattern ahead of time.** Reacting to each kick as it's heard would light up after it: capture, analysis and the bridge add up to about 100 ms, which is easy to see. Instead, `Groove` learns where in the bar the kick falls, in sixteenths of a four-beat bar counted along the beat grid, and the lights play that pattern on the predicted grid, shifted by `audio.offset-ms` like the beat pulse. `BeatState.number` keeps counting beats from the moment the tracker locks on, so the pattern stays in place as the tracker re-estimates.
+
+The kick is heard as a jump in the power between about 40 and 130 Hz. This is raw power, not the compressed onset strength the beat tracker uses: on the six songs recorded through BlackHole, the compressed low end rose about equally on every sixteenth, because dance tracks duck the bass on each kick and it swells back in between, while the raw power landed mostly on the beat. Each sixteenth's average power is learnt over about six bars, and a sixteenth lights in proportion to how far it stands above the typical sixteenth of the bar. A shorter average over the last bar or two scales the whole pattern, so when the kick drops out for a breakdown the rhythm lights fade within a few bars, and come back when it returns. Until a full bar has been heard after locking on, they pulse on every beat. The six recorded songs are four-on-the-floor dance tracks, so there the pattern is mostly a kick on every beat; music with a sparser or syncopated kick shows more of a pattern.
+
+**Colour lights follow the pitch.** For each frame, `OnsetDetector` finds where the sound between about 300 Hz and 4 kHz is centred, in octaves: below that range are the kick and bass, above it the hi-hats. The tracker smooths it over about 0.4 seconds and compares it with what's usual for the track over the last 20 seconds or so, giving a value from -1 (well below usual) to 1 (well above), where a typical move away from usual is about 0.4. It reflects where the music sits rather than which notes are played: a higher melody or a brighter sound both raise it.
+
+The colour light's place along the palette blends neighbouring palette colours round the colour wheel (`RGB.turnTowards`), so the colours in between stay as vivid as the palette's own, and it stops at either end of the palette rather than wrapping round. With an analogous palette (-30°, base, +30°) and the default reach, the light whose colour is the base turns to +30° at the top and -30° at the bottom; the lights at either end of the palette move only one way.
+
+The tests cover each part: `Groove` learns where the kicks fall wherever in the grid it starts, fades within a few bars when they stop, and stays between 0 and 1 for any input; a groove with a full kick on every beat gives exactly the beat pulse, and a kick on one sixteenth peaks on it and is dark half a bar later; on generated drums, the tracker learns a kick on every beat and on every other beat, and counts beats on without a jump through every re-estimate; a pure tone's pitch is its frequency, and pitch rises and falls as a tone moves; colour lights hold steady whatever the pulse, and pulse lights are unchanged by what the other lights do.
 
 ## 5. Pause
 
@@ -279,7 +301,10 @@ light-show {
 | `audio.hold-seconds` | `10` | How long to keep the last confident beat when the music no longer gives a clear one |
 | `reactive.enabled` | `true` | Turns the [reactions to the music](#reacting-to-the-music) on or off |
 | `reactive.quietest`, `reactive.loudest` | `0.35`, `1.6` | Brightness range as the energy changes |
-| `reactive.colour-shift` | `25` | Degrees the palette turns with the treble |
+| `reactive.roles` | `["rhythm", "colour"]` | Each light's [role](#light-roles), repeated across the zone in channel order |
+| `reactive.colour-reach` | `1.0` | How many palette colours the colour lights move at the highest or lowest pitch |
+| `reactive.colour-glow` | `0.3` | How bright colour lights glow, from a pulse's rest (0) to its peak (1) |
+| `reactive.colour-shift` | `25` | Degrees the palette of pulse lights turns with the treble |
 | `reactive.flash`, `reactive.flash-decay-ms` | `0.7`, `200` | How far a big hit flashes towards white, and how fast it fades |
 | `reactive.hit-ratio` | `1.15` | How much louder than the last few seconds counts as a big hit |
 | `reactive.sparkle`, `reactive.sparkle-decay-ms` | `0.6`, `100` | How far a sparkle twinkles towards white, and how fast it fades |
@@ -307,6 +332,8 @@ The [roadmap](roadmap.md) tracks fixes for these.
 - **The beat tracker can count double or half time** on very slow or very fast music, which is a common ambiguity. `audio.min-bpm` and `audio.max-bpm` narrow the range.
 - **The beat tracker can settle on a related but wrong tempo,** such as 4/3 of the real one, on songs whose rhythm supports both. On one of six songs recorded through BlackHole it did this for about a third of the time it was locked.
 - **Sustained notes on their own can read as a beat.** A held chord with no drums can ripple steadily enough for the tracker to find a tempo in it: a generated chord does this after a few seconds on its own. The hold keeps short breakdowns on the old beat, but a long ambient intro may pulse at a tempo that isn't there until the drums come in.
+- **Rhythm lights assume four beats to a bar.** In other time signatures the learnt pattern smears across the bar, and the lights settle towards a pulse on the beats that most often have a kick. The bar starts wherever the tracker locked on, not on the first beat, and a new lock relearns the pattern.
+- **Pitch is where the sound is centred, not which notes are played.** A melody moving up raises it, but so does a brighter sound coming in, and two chords in the same range look the same.
 - **Certificate checks are off.** The Hue bridge serves a self-signed certificate, so the app's HTTP client is built without certificate verification. That client is shared, so Spotify calls skip verification too. A separate client for the bridge would keep verification on for Spotify.
 
 ## Regenerating the images

@@ -218,4 +218,51 @@ class BeatTrackerSpec extends ScalaCheckSuite {
     val reading = Synth.readings(Synth.withCrash(Synth.drums(3, _ => 120)._1, 1.5)).last._2
     assertEquals((reading.hit, reading.sparkles), (None, 0L))
   }
+
+  test("the pitch of a pure tone is its frequency, in octaves") {
+    List(440.0, 880.0, 2000.0).foreach { hz =>
+      val onset = Synth.tone(0.1, hz).grouped(512).foldLeft((OnsetDetector.initial(1024), Option.empty[Onset])) {
+        case ((d, _), h) => val (next, o) = d.step(h); (next, Some(o))
+      }._2.get
+      assert(onset.pitch.exists(p => math.abs(p - math.log(hz) / math.log(2)) < 0.1), s"$hz Hz: ${onset.pitch}")
+    }
+  }
+
+  test("pitch rises when the music moves up, and falls when it moves down") {
+    val up = Synth.readings(Synth.concat(Synth.tone(10, 400), Synth.tone(4, 1600))).last._2
+    val down = Synth.readings(Synth.concat(Synth.tone(10, 1600), Synth.tone(4, 400))).last._2
+    assert(up.pitch > 0.5, up.pitch.toString)
+    assert(down.pitch < -0.5, down.pitch.toString)
+  }
+
+  test("pitch settles back to about 0 while the music stays in one place") {
+    val reading = Synth.readings(Synth.mix(Synth.tone(20, 700), Synth.drums(20, _ => 120)._1)).last._2
+    assert(math.abs(reading.pitch) < 0.3, reading.pitch.toString)
+  }
+
+  test("once locked, the beats are counted on without a jump, through every re-estimate") {
+    val (audio, _) = Synth.drums(20, _ => 124)
+    val counts = Synth.readings(audio).collect { case (t, r) if r.beat.isDefined => (t, r.beat.get.countAt(t.seconds.toNanos.nanos)) }
+    val steps = counts.sliding(2).map { pair =>
+      val ((t0, c0), (t1, c1)) = (pair(0), pair(1))
+      c1 - c0 - (t1 - t0) * 124 / 60
+    }.toVector
+    assert(counts.size > 1000, counts.size.toString)
+    assert(steps.forall(math.abs(_) < 0.1), steps.map(math.abs).max.toString)
+  }
+
+  test("learns the kick pattern: on every beat, or on every other beat") {
+    List(1 -> 4, 2 -> 2).foreach { (every, perBar) =>
+      val (audio, _) = Synth.drums(30, _ => 124, kickEvery = every)
+      val groove = Synth.readings(audio).last._2.groove
+      val strong = groove.indices.filter(groove(_) > 0.5)
+      assertEquals(strong.size, perBar, s"kick every $every beats: $groove")
+      assert(strong.forall(_ % Groove.StepsPerBeat == 0), s"kick every $every beats: $groove")
+      assert(strong.sliding(2).forall(p => p.size < 2 || p(1) - p(0) == every * Groove.StepsPerBeat), s"kick every $every beats: $groove")
+    }
+  }
+
+  test("without a beat there's no kick pattern") {
+    assertEquals(Synth.readings(Synth.noise(12)).last._2.groove, Vector.empty)
+  }
 }

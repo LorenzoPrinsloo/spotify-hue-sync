@@ -5,9 +5,12 @@ package beat
  *
  * `flux` is the onset strength the beat tracker uses (low end weighted most), `bassFlux` the same for the low end
  * alone (kick and bass), `trebleFlux` for the high end alone (hi-hats, cymbals, consonants), and `rms` the hop's
- * loudness.
+ * loudness. `kick` is how much the power in the kick drum's range (about 40-130 Hz) rose since the previous window:
+ * unlike the flux, it isn't compressed, so the big low thump of a kick stands out from the bass line around it.
+ * `pitch` is where the sound in the middle of the spectrum (vocals, leads, chords) is centred, in octaves above 1 Hz,
+ * or None when that range is silent.
  */
-case class Onset(flux: Double, bassFlux: Double, trebleFlux: Double, rms: Double)
+case class Onset(flux: Double, bassFlux: Double, trebleFlux: Double, rms: Double, kick: Double = 0.0, pitch: Option[Double] = None)
 
 /**
  * Spectral-flux onset detection: how much louder each frequency got since the previous window. Drums and note
@@ -33,7 +36,8 @@ case class OnsetDetector(window: Int, history: Vector[Float], previous: Vector[D
         (bass + OnsetDetector.highWeight * high.sum / high.size, bass, treble.sum / treble.size)
       }
     val rms = if (hop.isEmpty) 0.0 else math.sqrt(hop.map(s => s.toDouble * s).sum / hop.length)
-    val onset = Onset(flux, bassFlux, trebleFlux, rms)
+    val kick = if (previous.isEmpty) 0.0 else math.max(0.0, OnsetDetector.kickPower(spectrum) - OnsetDetector.kickPower(previous))
+    val onset = Onset(flux, bassFlux, trebleFlux, rms, kick, OnsetDetector.pitch(magnitudes, window))
     (OnsetDetector(window, samples, spectrum.toVector), onset)
   }
 }
@@ -49,6 +53,37 @@ object OnsetDetector {
 
   /** How much the rest of the spectrum (hi-hats, vocals) counts compared with the low end. */
   val highWeight: Double = 0.3
+
+  /** Bins of about 40-130 Hz (at 44.1 kHz with a 1024 window), where a kick drum thumps. */
+  val kickBins: Range = 1 to 3
+
+  /** Power in the kick drum's range, from the compressed spectrum. */
+  private def kickPower(spectrum: scala.collection.IndexedSeq[Double]): Double =
+    kickBins.filter(_ < spectrum.size).map { k =>
+      val magnitude = (math.exp(spectrum(k)) - 1) / 100
+      magnitude * magnitude
+    }.sum
+
+  /** Each bin's frequency in octaves above 1 Hz, per window size. */
+  private val octavesOf = scala.collection.concurrent.TrieMap.empty[Int, Array[Double]]
+
+  /**
+   * The loudness-weighted centre of the spectrum between the low end and the treble, in octaves above 1 Hz, so a
+   * move of 1 is an octave. None when there's next to nothing there.
+   */
+  def pitch(magnitudes: Array[Double], window: Int, sampleRate: Double = 44100): Option[Double] = {
+    val octaves = octavesOf.getOrElseUpdate(window, Array.tabulate(window / 2 + 1)(k => math.log(math.max(k, 1) * sampleRate / window) / math.log(2)))
+    val end = math.min(trebleBins, magnitudes.length)
+    var weight = 0.0
+    var sum = 0.0
+    var k = lowBins
+    while (k < end) {
+      weight += magnitudes(k)
+      sum += magnitudes(k) * octaves(k)
+      k += 1
+    }
+    Option.when(weight > 1e-6)(sum / weight)
+  }
 
   private val windows = scala.collection.concurrent.TrieMap.empty[Int, Array[Double]]
 

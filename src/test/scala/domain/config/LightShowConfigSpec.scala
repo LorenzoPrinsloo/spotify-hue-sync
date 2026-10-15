@@ -1,6 +1,6 @@
 package domain.config
 
-import domain.engine.{Order, PaletteType, RGB}
+import domain.engine.{LightRole, Order, PaletteType, RGB}
 import munit.FunSuite
 import pureconfig.ConfigSource
 
@@ -58,7 +58,11 @@ class LightShowConfigSpec extends FunSuite {
       "light-show.beats-per-pulse = -1",
       "light-show.frame-interval-ms = 0",
       "light-show.pulse.decay-curve = 0",
-      "light-show.pause.fade-out-ms = -5"
+      "light-show.pause.fade-out-ms = -5",
+      "light-show.reactive.roles = []",
+      "light-show.reactive.roles = [\"rhythm\", \"strobe\"]",
+      "light-show.reactive.colour-glow = 1.5",
+      "light-show.reactive.colour-reach = -1"
     )
     invalid.foreach(c => assert(load(c).isLeft, c))
   }
@@ -84,6 +88,14 @@ class LightShowConfigSpec extends FunSuite {
     assertEquals(show.map(_.beatSource), Right(BeatSource.Audio))
     assertEquals(show.map(_.audio), Right(AudioSettings(device = "Loopback", offsetMs = 40)))
     assertEquals(load().map(_.lightShow.beatSource), Right(BeatSource.Spotify))
+  }
+
+  test("light roles can be configured, with colour spelt either way") {
+    assertEquals(load().map(_.lightShow.reactive.roles), Right(List(LightRole.Rhythm, LightRole.Colour)))
+    assertEquals(
+      load("light-show.reactive.roles = [\"pulse\", \"Rhythm\", \"color\", \"colour\"]").map(_.lightShow.reactive.roles),
+      Right(List(LightRole.Pulse, LightRole.Rhythm, LightRole.Colour, LightRole.Colour))
+    )
   }
 
   test("an unknown beat source or an impossible tempo range is rejected") {

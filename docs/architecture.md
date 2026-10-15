@@ -48,9 +48,9 @@ flowchart LR
 | (root) | `Main`, which wires everything together, and `SyncEngine`, which turns playback state into light frames |
 | `client` | Everything that talks to the outside world: `SpotifyClient`, `CachedSpotifyClient`, `HueClient` and `DtlsEmitter` |
 | `audio` | `AudioInput`: captures audio from an input device such as BlackHole |
-| `beat` | Live beat detection: `Fft`, `OnsetDetector`, `BeatTracker`, `BeatState`, `AudioReading` and the `BeatTracking` stream |
+| `beat` | Live beat detection: `Fft`, `OnsetDetector`, `BeatTracker`, `BeatState`, `Groove` (the bar's kick pattern), `AudioReading` and the `BeatTracking` stream |
 | `domain.config` | `AppConfig`, `HueConfig` and `LightShowConfig` (with `PulseSettings`, `PauseSettings`, `AudioSettings` and `ReactiveSettings`), loaded with pureconfig from `application.conf` on top of the defaults in `reference.conf` |
-| `domain.engine` | The colour engine and animation: `RGB`, `Palette`, `PaletteType`, `Order`, `Pulse` (the envelope), `Effects` (the reactions to the music), `Renderer` (the pause fade) and `LocalPlayback` |
+| `domain.engine` | The colour engine and animation: `RGB`, `Palette`, `PaletteType`, `Order`, `Pulse` (the envelopes), `Effects` (the reactions to the music), `LightRole` (each light's job), `Renderer` (the pause fade) and `LocalPlayback` |
 | `domain.hue` | The Hue streaming protocol: `Zone`, `Frame`, `LightUpdate` and their binary codecs |
 | `domain.spotify` | Spotify API models: `PlaybackState`, `SpotifyToken`, `SpotifySession`, `SpotifySegment`, `SpotifyCredentials` |
 | `givens.circe` | Shared circe codecs |
@@ -119,6 +119,8 @@ classDiagram
 
     class Pulse {
         +level(phase, settings)$ Double
+        +onBeat(phase, settings)$ Double
+        +rhythm(groove, beats, settings)$ Double
         +brightness(level, settings)$ Double
     }
     class Effects {
@@ -126,6 +128,10 @@ classDiagram
         hueShift: Int
         flash: Double
         sparkle: Option~Sparkle~
+        roles: Vector~LightRole~
+        rhythm: Option~Rhythm~
+        paletteShift: Double
+        glow: Double
         +at(now, reading, lights, settings)$ Effects
     }
     class Renderer {

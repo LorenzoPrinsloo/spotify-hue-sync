@@ -19,6 +19,8 @@ What's still to do, roughly in priority order. Tick items off as they land.
 - [ ] **Avoid related but wrong tempos.** The tracker sometimes settles on 4/3 of a song's tempo. Checking the candidates at simple ratios of the winner (2/3, 3/4, 4/3, 3/2) against the low end could settle it.
 - [ ] **Find the downbeat.** Live beat detection lands every pulse on a beat, but doesn't know which beat starts the bar. Accenting beat one would make the show feel more musical.
 - [ ] **Tune the audio offset automatically,** by measuring the round trip from capture to the lights instead of setting `audio.offset-ms` by hand.
+- [ ] **Snares on lights of their own.** Rhythm lights follow the kick; a second group following the snare would add a backbeat. Snares share their range with vocals and guitars, so they're harder to pick out.
+- [ ] **Colour per musical note.** Colour lights follow where the sound is centred, not which notes are played. Following notes would need a finer frequency analysis than the beat tracker's, below about 700 Hz, where neighbouring notes share a frequency bin.
 - [ ] **Order the wave by position.** The bridge reports each channel's position in the room; sorting by it would make the wave travel left to right instead of by channel ID.
 
 ## Code health
@@ -35,6 +37,7 @@ What's still to do, roughly in priority order. Tick items off as they land.
 - [x] The live beat is held through breakdowns and short silences instead of dropping straight to Spotify timing
 - [x] Once locked, weaker estimates that agree on the tempo keep the beat, so quieter sections of a song don't lose it
 - [x] Tempo changes logged, with the tracker's confidence
+- [x] Light roles: rhythm lights play the bar's kick pattern ahead on the beat grid, colour lights move along the palette with the pitch
 - [x] The Spotify access token is renewed when it expires, so the lights keep going past the first hour
 - [x] Beats land on the kick rather than on off-beat hi-hats, and the tracker no longer flips between the beat and the off-beat
 - [x] Locks on once the tempo has held steady for a few seconds, so songs with a softer beat don't fall back to Spotify timing

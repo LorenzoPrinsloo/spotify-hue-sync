@@ -4,7 +4,7 @@ import beat.{AudioReading, BeatState}
 import client.SpotifyClient
 import fs2.Stream
 import domain.config.{AppConfig, PulseSettings}
-import domain.engine.{Effects, LocalPlayback, Palette, Pulse, RGB, Renderer}
+import domain.engine.{Effects, LightRole, LocalPlayback, Palette, Pulse, RGB, Renderer}
 import domain.hue.*
 import domain.spotify.types.TrackId
 import fs2.concurrent.SignallingRef
@@ -149,15 +149,25 @@ object SyncEngine:
   private val White: RGB = RGB.safe(255, 255, 255).get
 
   /**
-   * One frame of the pulse for every channel in the zone, `pulses` pulses into the music. Light 0 peaks on every
-   * whole pulse; light i takes palette colour i and peaks `stagger` of a pulse after light i - 1, so the pulse
-   * travels across the zone.
-   * The effects scale the brightness, turn the palette's hue, and push lights towards white for flashes and sparkles.
+   * One frame of the show for every channel in the zone, `pulses` pulses into the music. Light i takes palette colour
+   * i, and what it does depends on its role:
+   *  - a pulse light peaks `stagger` of a pulse after light i - 1 (light 0 on every whole pulse), so the pulse travels
+   *    across the zone, and its hue turns with the treble;
+   *  - a rhythm light pulses with the bar's kick pattern, or on every pulse until there's a live beat;
+   *  - a colour light glows steadily and moves along the palette as the music goes higher or lower.
+   * The effects scale the brightness and push lights towards white for flashes and sparkles.
    */
   def pulseFrame(zone: Zone, palette: Palette, pulses: Double, settings: PulseSettings, effects: Effects = Effects.neutral): Frame = {
     val updates = zone.channels.zipWithIndex.map { (channel, i) =>
-      val level = Pulse.onBeat(pulses - i * settings.stagger, settings)
-      val colour = if (effects.hueShift == 0) palette.getColor(i) else palette.getColor(i).rotateHue(effects.hueShift)
+      val (level, colour) = effects.roleOf(i) match {
+        case LightRole.Pulse =>
+          val own = palette.getColor(i)
+          (Pulse.onBeat(pulses - i * settings.stagger, settings), if (effects.hueShift == 0) own else own.rotateHue(effects.hueShift))
+        case LightRole.Rhythm =>
+          (effects.rhythm.fold(Pulse.onBeat(pulses, settings))(r => Pulse.rhythm(r.groove, r.beats, settings)), palette.getColor(i))
+        case LightRole.Colour =>
+          (effects.glow, palette.along(i, effects.paletteShift))
+      }
       val lit = colour.scaleBrightness(Pulse.brightness(level, settings, effects.intensity))
       val white = effects.whiteFor(i)
       LightUpdate(channel, if (white <= 0) lit else lit.mix(White, white))

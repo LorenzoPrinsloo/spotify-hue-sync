@@ -22,8 +22,8 @@ object Synth {
   }
 
   /**
-   * `seconds` of audio with a kick on every beat (starting at `firstBeat` seconds), optional quieter hi-hats
-   * half way between beats, and a little background noise. `bpmAt` gives the tempo at each moment.
+   * `seconds` of audio with a kick on every `kickEvery`th beat (starting at `firstBeat` seconds), optional quieter
+   * hi-hats half way between beats, and a little background noise. `bpmAt` gives the tempo at each moment.
    */
   def drums(
     seconds: Double,
@@ -33,13 +33,14 @@ object Synth {
     seed: Long = 1L,
     loudness: Double = 1.0,
     kicks: Boolean = true,
-    hatLoudness: Double = 0.25
+    hatLoudness: Double = 0.25,
+    kickEvery: Int = 1
   ): (Array[Float], Vector[Double]) = {
     val rnd = new Random(seed)
     val buffer = Array.fill((seconds * sr).toInt)((rnd.nextGaussian() * 0.01 * loudness).toFloat)
     val beats = Iterator.iterate(firstBeat)(t => t + 60.0 / bpmAt(t)).takeWhile(_ < seconds).toVector
-    beats.foreach { t =>
-      if (kicks) hit(buffer, t, 0.8 * loudness, bright = false, rnd)
+    beats.zipWithIndex.foreach { (t, i) =>
+      if (kicks && i % kickEvery == 0) hit(buffer, t, 0.8 * loudness, bright = false, rnd)
       if (hats) hit(buffer, t + 30.0 / bpmAt(t), hatLoudness * loudness, bright = true, rnd)
     }
     (buffer, beats)
@@ -64,6 +65,10 @@ object Synth {
       val fadeIn = math.min(1.0, t / 0.5)
       (loudness * fadeIn * (math.sin(2 * math.Pi * 220 * t) + math.sin(2 * math.Pi * 277 * t) + math.sin(2 * math.Pi * 330 * t)) / 3).toFloat
     }
+
+  /** A steady sine tone at `hz`, like a held note. */
+  def tone(seconds: Double, hz: Double, loudness: Double = 0.3): Array[Float] =
+    Array.tabulate((seconds * sr).toInt)(i => (loudness * math.sin(2 * math.Pi * hz * i / sr)).toFloat)
 
   /** Plays one piece of audio after another. */
   def concat(parts: Array[Float]*): Array[Float] = parts.flatten.toArray

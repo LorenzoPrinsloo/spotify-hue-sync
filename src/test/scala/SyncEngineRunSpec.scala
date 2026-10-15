@@ -4,7 +4,7 @@ import cats.effect.testkit.TestControl
 import fs2.Stream
 import client.SpotifyClient
 import domain.config.*
-import domain.engine.{Palette, PaletteType, RGB}
+import domain.engine.{LightRole, Palette, PaletteType, Pulse, RGB}
 import domain.hue.{Frame, HueCredentials, Zone}
 import domain.spotify.{SpotifyCredentials, SpotifySession}
 import domain.spotify.types.TrackId
@@ -146,9 +146,12 @@ class SyncEngineRunSpec extends CatsEffectSuite {
   private def playingFrames(frames: List[(FiniteDuration, Frame)]): List[(FiniteDuration, Frame)] =
     frames.filter((t, _) => t > 1100.millis && t.toMillis % 1000 > 20)
 
+  /** Every light doing the classic travelling pulse, so the timing of the pulse itself is what's checked. */
+  private val classic = LightShowConfig(reactive = ReactiveSettings(roles = List(LightRole.Pulse)))
+
   test("with a live beat, the pulses follow it") {
-    val settings = LightShowConfig()
-    run(Setup(audio = Stream.emit(AudioReading(Some(liveBeat))) ++ Stream.never[IO]), 5.seconds).map { case (frames, show, _) =>
+    val settings = classic
+    run(Setup(show = settings, audio = Stream.emit(AudioReading(Some(liveBeat))) ++ Stream.never[IO]), 5.seconds).map { case (frames, show, _) =>
       val checked = playingFrames(frames)
       assert(checked.size > 100)
       checked.foreach { (t, f) =>
@@ -159,7 +162,7 @@ class SyncEngineRunSpec extends CatsEffectSuite {
   }
 
   test("beats-per-pulse slows the pulse down relative to the live beat") {
-    val settings = LightShowConfig(beatsPerPulse = 2)
+    val settings = classic.copy(beatsPerPulse = 2)
     run(Setup(show = settings, audio = Stream.emit(AudioReading(Some(liveBeat))) ++ Stream.never[IO]), 4.seconds).map { case (frames, show, _) =>
       playingFrames(frames).foreach { (t, f) =>
         val expected = SyncEngine.pulseFrame(zone, show.palette, liveBeat.beatsAt(t + settings.audio.offsetMs.millis) / 2, settings.pulse)
@@ -169,8 +172,8 @@ class SyncEngineRunSpec extends CatsEffectSuite {
   }
 
   test("without a live beat, the pulses follow Spotify's position at the track's tempo") {
-    val settings = LightShowConfig()
-    run(Setup(audio = Stream.emit(AudioReading(None)) ++ Stream.never[IO]), 4.seconds).map { case (frames, show, _) =>
+    val settings = classic
+    run(Setup(show = settings, audio = Stream.emit(AudioReading(None)) ++ Stream.never[IO]), 4.seconds).map { case (frames, show, _) =>
       val checked = playingFrames(frames)
       assert(checked.size > 100)
       checked.foreach((t, f) => assertEquals(f.updates, spotifyFrame(t, show, settings).updates, s"at $t"))
@@ -178,14 +181,32 @@ class SyncEngineRunSpec extends CatsEffectSuite {
   }
 
   test("when the beat is lost, the pulses switch back to Spotify timing") {
-    val settings = LightShowConfig()
+    val settings = classic
     val audio = Stream.emit(AudioReading(Some(liveBeat))) ++ Stream.sleep_[IO](3.seconds) ++ Stream.emit(AudioReading(None)) ++ Stream.never[IO]
-    run(Setup(audio = audio), 6.seconds).map { case (frames, show, _) =>
+    run(Setup(show = settings, audio = audio), 6.seconds).map { case (frames, show, _) =>
       playingFrames(frames).foreach { (t, f) =>
         val expected =
           if (t < 3.seconds) SyncEngine.pulseFrame(zone, show.palette, liveBeat.beatsAt(t + settings.audio.offsetMs.millis), settings.pulse)
           else spotifyFrame(t, show, settings)
         assertEquals(f.updates, expected.updates, s"at $t")
+      }
+    }
+  }
+
+  test("with live audio, rhythm lights pulse together on the live beat and colour lights hold a steady glow") {
+    val settings = LightShowConfig()
+    run(Setup(audio = Stream.emit(AudioReading(Some(liveBeat))) ++ Stream.never[IO]), 5.seconds).map { case (frames, show, _) =>
+      val checked = playingFrames(frames)
+      assert(checked.size > 100)
+      val roles = LightRole.assign(settings.reactive.roles, zone.channels.size)
+      checked.foreach { (t, f) =>
+        val level = Pulse.onBeat(liveBeat.beatsAt(t + settings.audio.offsetMs.millis), settings.pulse)
+        roles.zipWithIndex.filter(_._1 == LightRole.Rhythm).foreach { (_, i) =>
+          assertEquals(f.updates(i).color, show.palette.getColor(i).scaleBrightness(Pulse.brightness(level, settings.pulse)), s"light $i at $t")
+        }
+      }
+      roles.zipWithIndex.filter(_._1 == LightRole.Colour).foreach { (_, i) =>
+        assertEquals(checked.map(_._2.updates(i).color).distinct.size, 1, s"light $i")
       }
     }
   }

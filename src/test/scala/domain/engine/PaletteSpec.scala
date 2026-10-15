@@ -1,6 +1,7 @@
 package domain.engine
 
 import munit.ScalaCheckSuite
+import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
 import scala.util.Random
 
@@ -84,6 +85,27 @@ class PaletteSpec extends ScalaCheckSuite {
     assertEquals(p.getColor(2), p.colors(2))
     assertEquals(p.getColor(3), p.colors(0))
     assertEquals(p.getColor(-1), p.colors(2))
+  }
+
+  property("along with no shift is the light's own colour") {
+    forAll { (seed: Long, index: Int) =>
+      generate(PaletteType.Tetradic, seed).exists(p => p.along(index, 0) == p.getColor(index))
+    }
+  }
+
+  property("along by whole colours lands on palette colours, stopping at either end") {
+    forAll(Gen.choose(0L, 1000L), Gen.choose(-20, 20), Gen.choose(-6, 6)) { (seed, index, shift) =>
+      generate(PaletteType.Tetradic, seed).exists { p =>
+        val last = p.colors.size - 1
+        p.along(index, shift) == p.colors(math.max(0, math.min(last, Math.floorMod(index, p.colors.size) + shift)))
+      }
+    }
+  }
+
+  test("along part of the way blends towards the neighbouring colour") {
+    val p = generate(PaletteType.Analogous, 7L).get
+    assertEquals(p.along(1, 0.5), p.colors(1).turnTowards(p.colors(2), 0.5))
+    assertEquals(p.along(1, -0.25), p.colors(0).turnTowards(p.colors(1), 0.75))
   }
 
   test("palette names parse case-insensitively and reject unknown names") {

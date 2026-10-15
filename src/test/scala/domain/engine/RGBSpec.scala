@@ -107,6 +107,22 @@ class RGBSpec extends ScalaCheckSuite {
     }
   }
 
+  property("turning towards another colour gives this colour at 0 and the other at 1") {
+    forAll(rgb, rgb) { (a, b) => a.turnTowards(b, 0) == a && a.turnTowards(b, 1) == b }
+  }
+
+  property("turning goes the short way round the colour wheel, keeping the colours in between as vivid as the ends") {
+    forAll(vivid, vivid, Gen.choose(0.1, 0.9)) { (a, b, t) =>
+      val apart = hueDistance(hue(a), hue(b))
+      val between = a.turnTowards(b, t)
+      apart > 0.45 || (
+        math.abs(hueDistance(hue(a), hue(between)) - t * apart) < 0.02 &&
+          math.abs(hueDistance(hue(between), hue(b)) - (1 - t) * apart) < 0.02 &&
+          saturation(between) >= math.min(saturation(a), saturation(b)) - 0.02
+      )
+    }
+  }
+
   property("fromHex reads back a colour written as #rrggbb") {
     forAll { (c: RGB) =>
       val hex = f"#${c.r.value}%02x${c.g.value}%02x${c.b.value}%02x"
