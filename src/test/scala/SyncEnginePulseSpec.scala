@@ -34,18 +34,18 @@ class SyncEnginePulseSpec extends ScalaCheckSuite {
     }
   }
 
-  property("at the peak the hue is unchanged, so bright colours don't wash out") {
-    forAll(vivid) { c =>
-      val lit = SyncEngine.pulseFrame(Zone(zoneId, List(0)), Palette(Vector(c)), 0.25, settings).updates.head.color
+  property("on the beat a light is at its peak, with the hue unchanged, so bright colours don't wash out") {
+    forAll(vivid, Gen.choose(-1000, 1000)) { (c, beat) =>
+      val lit = SyncEngine.pulseFrame(Zone(zoneId, List(0)), Palette(Vector(c)), beat.toDouble, settings).updates.head.color
       degrees(hueDistance(hue(lit), hue(c))) < 2 &&
         math.abs(saturation(lit) - saturation(c)) < 0.02 &&
         math.abs(brightness(lit) - math.min(1.0, brightness(c) * 2.65)) <= 1.0 / 255 + 1e-6
     }
   }
 
-  property("at the start of a beat a light rests at 15% of its brightness") {
+  property("just before it starts to rise for the next beat, a light rests at 15% of its brightness") {
     forAll(rgb) { c =>
-      val rest = SyncEngine.pulseFrame(Zone(zoneId, List(0)), Palette(Vector(c)), 0.0, settings).updates.head.color
+      val rest = SyncEngine.pulseFrame(Zone(zoneId, List(0)), Palette(Vector(c)), 1.0 - settings.attack, settings).updates.head.color
       math.abs(brightness(rest) - brightness(c) * 0.15) <= 1.0 / 255 + 1e-6
     }
   }
@@ -93,7 +93,7 @@ class SyncEnginePulseSpec extends ScalaCheckSuite {
   property("intensity scales every light's brightness") {
     forAll(vivid, Gen.choose(0.0, 1.0), Gen.choose(0.3, 1.6)) { (c, p, intensity) =>
       val lit = SyncEngine.pulseFrame(Zone(zoneId, List(0)), Palette(Vector(c)), p, settings, Effects(intensity = intensity)).updates.head.color
-      val expected = math.min(1.0, brightness(c) * Pulse.brightness(Pulse.level(p, settings), settings) * intensity)
+      val expected = math.min(1.0, brightness(c) * Pulse.brightness(Pulse.onBeat(p, settings), settings) * intensity)
       math.abs(brightness(lit) - expected) <= 1.0 / 255 + 1e-6
     }
   }

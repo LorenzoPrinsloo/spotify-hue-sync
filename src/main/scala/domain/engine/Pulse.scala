@@ -14,6 +14,12 @@ object Pulse {
   }
 
   /**
+   * Envelope level `phase` pulses after a pulse lands, timed so the attack comes just before it and the peak lands on
+   * it: rising on the beat instead would leave the peak a fifth of a beat late, more on slower songs.
+   */
+  def onBeat(phase: Double, s: PulseSettings): Double = level(phase + s.attack, s)
+
+  /**
    * Brightness multiplier for an envelope level: `restLevel` at rest, `restLevel + peakBoost` at the peak, all scaled
    * by the music's `intensity` (1 when the show isn't reacting to live audio).
    */

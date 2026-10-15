@@ -56,6 +56,13 @@ class PulseSpec extends ScalaCheckSuite {
     assertEqualsDouble(Pulse.level(0.65, defaults), 0.25, 1e-9)
   }
 
+  property("timed on the beat, the pulse rises just before each beat and peaks on it") {
+    forAll(pulseSettings, Gen.choose(-1000, 1000), Gen.choose(0.0, 0.999)) { (s, n, t) =>
+      Pulse.onBeat(n.toDouble, s) > 1 - 1e-9 &&
+        math.abs(Pulse.onBeat(n - s.attack * (1 - t), s) - t) < 1e-9
+    }
+  }
+
   property("brightness runs from the rest level at 0 to rest level plus boost at the peak") {
     forAll(pulseSettings) { s =>
       Pulse.brightness(0, s) == s.restLevel && math.abs(Pulse.brightness(1, s) - (s.restLevel + s.peakBoost)) < 1e-12

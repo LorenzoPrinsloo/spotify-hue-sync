@@ -192,17 +192,17 @@ object DocImages {
     }
   }
 
-  /** The brightness multiplier of one light at a moment, from the real pulse envelope. */
+  /** The brightness multiplier of one light at a moment, timed on the beat as the engine does. */
   private def multiplier(light: Int, ms: Long): Double =
-    Pulse.brightness(Pulse.level(ms / beatMs - light * settings.stagger, settings), settings)
+    Pulse.brightness(Pulse.onBeat(ms / beatMs - light * settings.stagger, settings), settings)
 
   private def samples(seconds: Double, stepMs: Int = 10): Seq[Long] = (0L to (seconds * 1000).toLong by stepMs.toLong)
 
   private def envelopeImage: String = {
     val beat = beatMs / 1000
-    val pts = samples(beat).map(ms => (ms / 1000.0, multiplier(0, ms)))
+    val pts = samples(beat).map(ms => (ms / 1000.0, Pulse.brightness(Pulse.level(ms / beatMs, settings), settings)))
     lineChart(
-      title = s"One pulse (one beat = ${beat.toInt}s at ${bpm.toInt} BPM)",
+      title = s"One pulse (one beat = ${beat.toInt}s at ${bpm.toInt} BPM): the beat lands where the attack ends",
       width = 720, height = 340, xMax = beat, yMax = 3.2,
       yLabel = "brightness multiplier",
       series = Seq(Series("light 0: 0.15 at rest, up to 2.65 at the peak", "#e05a2b", pts)),

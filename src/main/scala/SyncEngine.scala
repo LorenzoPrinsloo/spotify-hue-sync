@@ -149,13 +149,14 @@ object SyncEngine:
   private val White: RGB = RGB.safe(255, 255, 255).get
 
   /**
-   * One frame of the pulse for every channel in the zone, `pulses` pulses into the music. Light i takes palette
-   * colour i and starts its pulse `stagger` of a pulse after light i - 1, so the pulse travels across the zone.
+   * One frame of the pulse for every channel in the zone, `pulses` pulses into the music. Light 0 peaks on every
+   * whole pulse; light i takes palette colour i and peaks `stagger` of a pulse after light i - 1, so the pulse
+   * travels across the zone.
    * The effects scale the brightness, turn the palette's hue, and push lights towards white for flashes and sparkles.
    */
   def pulseFrame(zone: Zone, palette: Palette, pulses: Double, settings: PulseSettings, effects: Effects = Effects.neutral): Frame = {
     val updates = zone.channels.zipWithIndex.map { (channel, i) =>
-      val level = Pulse.level(pulses - i * settings.stagger, settings)
+      val level = Pulse.onBeat(pulses - i * settings.stagger, settings)
       val colour = if (effects.hueShift == 0) palette.getColor(i) else palette.getColor(i).rotateHue(effects.hueShift)
       val lit = colour.scaleBrightness(Pulse.brightness(level, settings, effects.intensity))
       val white = effects.whiteFor(i)
