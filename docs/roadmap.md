@@ -39,6 +39,7 @@ What's still to do, roughly in priority order. Tick items off as they land.
 - [x] Light roles: rhythm lights play the bar's kick pattern ahead on the beat grid, colour lights swell every other beat and move along the palette with the pitch
 - [x] The Spotify access token is renewed when it expires, so the lights keep going past the first hour
 - [x] CI: GitHub Actions lints with Scalafix and runs the tests on every push
+- [x] A settings page to try out light-show settings while the app runs, taken up as each song starts
 - [x] Beats land on the kick rather than on off-beat hi-hats, and the tracker no longer flips between the beat and the off-beat
 - [x] Locks on once the tempo has held steady for a few seconds, so songs with a softer beat don't fall back to Spotify timing
 - [x] Pulses peak on the beat instead of a fifth of a beat after it, and captured audio is timed by its sample count, so the lights no longer trail the music

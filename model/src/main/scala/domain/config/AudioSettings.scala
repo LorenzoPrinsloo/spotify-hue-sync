@@ -1,5 +1,7 @@
 package domain.config
 
+import io.circe.Codec
+
 /**
  * Live beat detection. `device` is matched against input names (e.g. "BlackHole"); `offsetMs` shifts the lights
  * relative to the detected beat, positive being earlier, to make up for capture and bridge latency. Through quiet
@@ -11,4 +13,4 @@ case class AudioSettings(
   minBpm: Double = 60,
   maxBpm: Double = 180,
   holdSeconds: Double = 10.0
-)
+) derives Codec.AsObject

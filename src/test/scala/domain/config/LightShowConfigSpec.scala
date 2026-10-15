@@ -19,6 +19,7 @@ class LightShowConfigSpec extends FunSuite {
   test("reference.conf holds the same defaults as the code") {
     assertEquals(load().map(_.lightShow), Right(LightShowConfig()))
     assertEquals(load().map(_.pollingIntervalMs), Right(2000))
+    assertEquals(load().map(_.ui), Right(UiConfig()))
   }
 
   test("the light-show section is optional and defaults to the original behaviour") {

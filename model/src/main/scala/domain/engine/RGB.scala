@@ -7,8 +7,6 @@ import eu.timepit.refined.auto.*
 import eu.timepit.refined.numeric.Interval
 import scodec.Codec
 import scodec.codecs.*
-import java.awt.Color.getHSBColor
-import java.awt.Color.RGBtoHSB
 import scala.io.AnsiColor
 import cats.syntax.all.*
 import scala.util.Random
@@ -37,6 +35,12 @@ object RGB {
     s"$colorBlock"
   }
 
+  /** As `#rrggbb` in JSON, the way the config file writes colours. */
+  given json: io.circe.Codec[RGB] = io.circe.Codec.from(
+    io.circe.Decoder.decodeString.emap(hex => fromHex(hex).toRight(s"expected a colour like #1e1408, not $hex")),
+    io.circe.Encoder.encodeString.contramap(_.hex)
+  )
+
   def safe(r: Int, g: Int, b: Int): Option[RGB] =
     for {
       rr <- refineV[Interval.Closed[0, 255]](r).toOption
@@ -55,8 +59,10 @@ object RGB {
     )
   }
 
-  private def fromColor(c: java.awt.Color): RGB =
-    RGB(Refined.unsafeApply(c.getRed), Refined.unsafeApply(c.getGreen), Refined.unsafeApply(c.getBlue))
+  private def fromHsb(hue: Float, saturation: Float, brightness: Float): RGB = {
+    val (r, g, b) = Hsb.toRgb(hue, saturation, brightness)
+    RGB(Refined.unsafeApply(r), Refined.unsafeApply(g), Refined.unsafeApply(b))
+  }
 
   private def channel(v: Double): ByteInt = Refined.unsafeApply(math.round(math.max(0.0, math.min(255.0, v))).toInt)
 
@@ -90,18 +96,21 @@ object RGB {
     def tetradic: List[RGB] =
       List(c, c.rotateHue(90), c.rotateHue(180), c.rotateHue(270))
 
-    def hsb: Array[Float] = RGBtoHSB(c.r.value, c.g.value, c.b.value, null)
+    def hsb: Array[Float] = Hsb.fromRgb(c.r.value, c.g.value, c.b.value)
+
+    /** `#rrggbb`, as read by `fromHex`. */
+    def hex: String = f"#${c.r.value}%02x${c.g.value}%02x${c.b.value}%02x"
 
     def rotateHue(degrees: Int): RGB = {
       val Array(h, sat, b) = c.hsb
       val newHue = ((h + degrees / 360.0f) % 1.0f + 1.0f) % 1.0f
-      fromColor(getHSBColor(newHue, sat, b))
+      fromHsb(newHue, sat, b)
     }
 
     /** The same hue and saturation at an absolute brightness in [0, 1]. */
     def withBrightness(brightness: Double): RGB = {
       val Array(h, sat, _) = c.hsb
-      fromColor(getHSBColor(h, sat, math.max(0.0, math.min(1.0, brightness)).toFloat))
+      fromHsb(h, sat, math.max(0.0, math.min(1.0, brightness)).toFloat)
     }
 
     /** Multiplies brightness in HSB, so the hue and saturation stay the same; brightness is capped at 1. */
@@ -121,7 +130,7 @@ object RGB {
         val Array(h2, s2, b2) = other.hsb
         val turn = (h2 - h1 + 1.5f) % 1.0f - 0.5f
         val hue = ((h1 + turn * k.toFloat) % 1.0f + 1.0f) % 1.0f
-        fromColor(getHSBColor(hue, (s1 + (s2 - s1) * k).toFloat, (b1 + (b2 - b1) * k).toFloat))
+        fromHsb(hue, (s1 + (s2 - s1) * k).toFloat, (b1 + (b2 - b1) * k).toFloat)
       }
     }
 

@@ -1,5 +1,7 @@
 package domain.engine
 
+import io.circe.{Codec, Decoder, Encoder}
+
 /**
  * What a light does in the show. `Rhythm` lights pulse with the kick pattern, `Colour` lights swell every couple of beats
  * and move along the palette as the music goes higher or lower, and `Pulse` lights do the classic pulse that travels
@@ -7,6 +9,9 @@ package domain.engine
  */
 enum LightRole derives CanEqual {
   case Pulse, Rhythm, Colour
+
+  /** How it's written in the config file: `pulse`, `rhythm` or `colour`. */
+  def name: String = toString.toLowerCase
 }
 
 object LightRole {
@@ -22,4 +27,7 @@ object LightRole {
     case "colour" | "color" => Some(LightRole.Colour)
     case _                  => None
   }
+
+  given Codec[LightRole] =
+    Codec.from(Decoder.decodeString.emap(n => parse(n).toRight(s"expected rhythm, colour or pulse, not $n")), Encoder.encodeString.contramap(_.name))
 }

@@ -1,6 +1,7 @@
 package domain.config
 
 import domain.engine.LightRole
+import io.circe.Codec
 
 /**
  * How the show reacts to live audio, beyond the beat.
@@ -29,4 +30,4 @@ case class ReactiveSettings(
   roles: List[LightRole] = List(LightRole.Rhythm, LightRole.Colour),
   colourReach: Double = 1.0,
   colourSwell: SwellSettings = SwellSettings()
-)
+) derives Codec.AsObject

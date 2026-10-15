@@ -5,6 +5,7 @@ import fs2.Stream
 import client.SpotifyClient
 import domain.config.*
 import domain.engine.{LightRole, Palette, PaletteType, Pulse, RGB}
+import settings.LiveSettings
 import domain.hue.{Frame, HueCredentials, Zone}
 import domain.spotify.{SpotifyCredentials, SpotifySession}
 import domain.spotify.types.TrackId
@@ -21,8 +22,8 @@ class SyncEngineRunSpec extends CatsEffectSuite {
 
   private val zone = Zone("00000000-0000-0000-0000-000000000000", List(0, 1, 2, 4, 7))
   private val track = TrackId("track-1")
-  private val playing =
-    """{ "progress_ms": 0, "is_playing": true, "item": { "id": "track-1", "album": { "images": [ { "url": "cover" } ] } } }"""
+  private def playing(trackId: String): String =
+    s"""{ "progress_ms": 0, "is_playing": true, "item": { "id": "$trackId", "album": { "images": [ { "url": "cover" } ] } } }"""
   private val resting = RGB.safe(30, 20, 8).get
 
   private def config(show: LightShowConfig): AppConfig =
@@ -38,29 +39,32 @@ class SyncEngineRunSpec extends CatsEffectSuite {
     playingUntil: FiniteDuration = 1.hour,
     tempo: IO[Response[IO]] = Ok("""{ "tempo": 128.0 }"""),
     seed: Long = 1L,
-    audio: Stream[IO, AudioReading] = Stream.empty
+    audio: Stream[IO, AudioReading] = Stream.empty,
+    trackAt: FiniteDuration => String = _ => "track-1"
   )
 
-  private def engine(setup: Setup, tempoCalls: Ref[IO, Int]): IO[SyncEngine[IO]] =
+  private def engine(setup: Setup, tempoCalls: Ref[IO, Int]): IO[(SyncEngine[IO], LiveSettings[IO])] =
     for {
       session <- Ref.of[IO, Option[SpotifySession]](Some(SpotifySession("token", "refresh")))
       code <- Deferred[IO, String]
       app = HttpRoutes.of[IO] {
         case GET -> Root / "v1" / "me" / "player" =>
-          IO.realTime.flatMap(now => if (now < setup.playingUntil) Ok(playing) else NoContent())
+          IO.realTime.flatMap(now => if (now < setup.playingUntil) Ok(playing(setup.trackAt(now))) else NoContent())
         case GET -> Root / "v1" / "audio-features" / _ =>
           tempoCalls.update(_ + 1) *> setup.tempo
       }.orNotFound
       spotify = new SpotifyClient[IO](Client.fromHttpApp(app), SpotifyCredentials("id", "secret", "refresh"), session, code)
-      built <- SyncEngine.make[IO](config(setup.show), spotify, zone, new Random(setup.seed), setup.audio)
-    } yield built
+      live <- LiveSettings.make[IO](setup.show)
+      built <- SyncEngine.make[IO](config(setup.show), live, spotify, zone, new Random(setup.seed), setup.audio)
+    } yield (built, live)
 
   /** Every frame emitted in `duration` of simulated time, with the time it was emitted, plus the engine's view of the track. */
   private def run(setup: Setup, duration: FiniteDuration): IO[(List[(FiniteDuration, Frame)], TrackShow, Int)] =
     TestControl.executeEmbed {
       for {
         calls <- Ref.of[IO, Int](0)
-        e <- engine(setup, calls)
+        built <- engine(setup, calls)
+        e = built._1
         frames <- e.run.evalMap(f => IO.monotonic.map(_ -> f)).interruptAfter(duration).compile.toList
         show <- e.showFor(track)
         n <- calls.get
@@ -211,6 +215,44 @@ class SyncEngineRunSpec extends CatsEffectSuite {
         roles.zipWithIndex.filter(_._1 == LightRole.Colour).foreach { (_, i) =>
           assertEquals(f.updates(i).color, show.palette.along(i, 0).scaleBrightness(Pulse.brightness(level, swell.shape)), s"light $i at $t")
         }
+      }
+    }
+  }
+
+  private val brighter = classic.copy(pulse = classic.pulse.copy(restLevel = 0.5))
+
+  /** Runs the engine for `duration` while `during` acts on it, returning what `during` saw. */
+  private def alongside[A](setup: Setup, duration: FiniteDuration)(during: (SyncEngine[IO], LiveSettings[IO]) => IO[A]): IO[A] =
+    TestControl.executeEmbed {
+      for {
+        calls <- Ref.of[IO, Int](0)
+        seen <- engine(setup, calls).flatMap((e, live) => e.run.interruptAfter(duration).compile.drain.background.surround(during(e, live)))
+      } yield seen
+    }
+
+  test("settings changed while a song plays wait for the next song") {
+    val songs = Setup(show = classic, trackAt = t => if (t < 3.seconds) "track-1" else "track-2")
+    alongside(songs, 5.seconds) { (e, live) =>
+      for {
+        _ <- IO.sleep(1500.millis) *> live.update(brighter)
+        sameSong <- IO.sleep(1.second) *> e.showFor(TrackId("track-1"))
+        nextSong <- IO.sleep(2.seconds) *> e.showFor(TrackId("track-2"))
+      } yield (sameSong.settings, nextSong.settings)
+    }.assertEquals((classic, brighter))
+  }
+
+  test("apply now takes the settings up straight away, keeping the palette unless its type changed") {
+    alongside(Setup(show = classic), 4.seconds) { (e, live) =>
+      for {
+        before <- IO.sleep(1500.millis) *> e.showFor(track)
+        _ <- live.update(brighter) *> e.applyNow
+        kept <- e.showFor(track)
+        _ <- live.update(brighter.copy(palette = PaletteType.Tetradic)) *> e.applyNow
+        changed <- e.showFor(track)
+      } yield {
+        assertEquals(kept.settings, brighter)
+        assertEquals(kept.palette, before.palette)
+        assertEquals(changed.palette.colors.size, 4)
       }
     }
   }

@@ -1,5 +1,7 @@
 package domain.engine
 
+import io.circe.{Codec, Decoder, Encoder}
+
 enum PaletteType derives CanEqual:
   case Complementary
   case Monochromatic
@@ -20,3 +22,14 @@ object PaletteType:
   )
 
   def parse(name: String): Option[PaletteType] = names.get(name.trim.toLowerCase)
+
+  private val nameOf: Map[PaletteType, String] = names.map(_.swap)
+
+  extension (p: PaletteType)
+    /** How it's written in the config file, such as `analogous-complementary-interspersed`. */
+    def name: String = nameOf.getOrElse(p, p.toString.toLowerCase)
+
+  given Codec[PaletteType] = Codec.from(
+    Decoder.decodeString.emap(n => parse(n).toRight(s"expected one of ${names.keys.toList.sorted.mkString(", ")}, not $n")),
+    Encoder.encodeString.contramap(_.name)
+  )

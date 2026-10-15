@@ -1,6 +1,14 @@
 # Architecture
 
-spotify-hue-sync is a single Cats Effect application. It polls Spotify for what is playing, turns the current track into a tempo and a colour palette, and streams a light frame to a Philips Hue entertainment zone about 60 times a second.
+spotify-hue-sync is a single Cats Effect application. It polls Spotify for what is playing, turns the current track into a tempo and a colour palette, and streams a light frame to a Philips Hue entertainment zone about 60 times a second. A settings page, served by the app, changes the light show's settings for the next song.
+
+The build has three modules:
+
+| Module | Directory | What it is |
+|---|---|---|
+| `root` | `.` | The app |
+| `model` | `model/` | The settings, their rules and JSON codecs, the colours (`RGB`, with plain-Scala HSB conversion) and the palette and light-role names; built for the JVM and for Scala.js |
+| `ui` | `ui/` | The settings page, in Laminar, compiled to JavaScript and served by the app from `ui/main.js` beside `src/main/resources/ui/index.html` |
 
 ## Components
 
@@ -20,6 +28,8 @@ flowchart LR
         BT[BeatTracker<br/>live beat]
         HC[HueClient]
         DE[DtlsEmitter]
+        LS[LiveSettings]
+        UI[Settings page<br/>127.0.0.1:7071]
     end
 
     subgraph Hue[Hue bridge]
@@ -37,6 +47,8 @@ flowchart LR
     BH[BlackHole<br/>audio input] --> BT
     BT -- beat, energy, hits --> SE
     SE -- frames --> DE
+    UI -- change, reset, apply now --> LS
+    LS -- settings, as each song starts --> SE
     HC -- read channels, start / stop streaming --> CLIP
     DE -- DTLS PSK packets --> ENT
 ```
@@ -49,7 +61,9 @@ flowchart LR
 | `client` | Everything that talks to the outside world: `SpotifyClient`, `CachedSpotifyClient`, `HueClient` and `DtlsEmitter` |
 | `audio` | `AudioInput`: captures audio from an input device such as BlackHole |
 | `beat` | Live beat detection: `Fft`, `OnsetDetector`, `BeatTracker`, `BeatState`, `Groove` (the bar's kick pattern), `AudioReading` and the `BeatTracking` stream |
-| `domain.config` | `AppConfig`, `HueConfig` and `LightShowConfig` (with `PulseSettings`, `PauseSettings`, `AudioSettings` and `ReactiveSettings`), loaded with pureconfig from `application.conf` on top of the defaults in `reference.conf` |
+| `domain.config` | `AppConfig`, `HueConfig`, `UiConfig` and `LightShowConfig` (with `PulseSettings`, `PauseSettings`, `AudioSettings`, `ReactiveSettings` and `SwellSettings`, in `model`), loaded with pureconfig from `application.conf` on top of the defaults in `reference.conf` by `LightShowConfigReaders`; `SettingsView`, `SettingsProblems` and `ConfigSnippet` for the settings page |
+| `settings` | `LiveSettings` (the settings for this session, taken up as each song starts), `SettingsRoutes` (the page and its API) and `SettingsServer` |
+| `ui` | The settings page: `SettingsPage`, `Sections` (every setting on it), `Api` |
 | `domain.engine` | The colour engine and animation: `RGB`, `Palette`, `PaletteType`, `Order`, `Pulse` (the envelopes), `Effects` (the reactions to the music), `LightRole` (each light's job), `Renderer` (the pause fade) and `LocalPlayback` |
 | `domain.hue` | The Hue streaming protocol: `Zone`, `Frame`, `LightUpdate` and their binary codecs |
 | `domain.spotify` | Spotify API models: `PlaybackState`, `SpotifyToken`, `SpotifySession`, `SpotifySegment`, `SpotifyCredentials` |

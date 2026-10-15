@@ -1,5 +1,7 @@
 package domain.config
 
+import io.circe.Codec
+
 /**
  * The swell of the colour lights: one every `beats` beats, peaking on the beat. As for the pulse, `attack` and
  * `sustain` are fractions of a swell and `decayCurve` shapes the fade after the peak; brightness runs from `restLevel`
@@ -13,7 +15,7 @@ case class SwellSettings(
   decayCurve: Double = 2.0,
   restLevel: Double = 0.25,
   peakBoost: Double = 0.75
-) {
+) derives Codec.AsObject {
   /** The swell as a pulse shape, one swell long. */
   def shape: PulseSettings = PulseSettings(0.0, attack, sustain, decayCurve, restLevel, peakBoost)
 }

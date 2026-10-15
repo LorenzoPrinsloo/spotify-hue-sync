@@ -3,8 +3,8 @@ import cats.syntax.all.*
 import beat.{AudioReading, BeatState}
 import client.SpotifyClient
 import fs2.Stream
-import domain.config.{AppConfig, PulseSettings}
-import domain.engine.{Effects, LightRole, LocalPlayback, Palette, Pulse, RGB, Renderer}
+import domain.config.{AppConfig, LightShowConfig, PulseSettings}
+import domain.engine.{Effects, LightRole, LocalPlayback, Palette, PaletteType, Pulse, RGB, Renderer}
 import domain.hue.*
 import domain.spotify.types.TrackId
 import fs2.concurrent.SignallingRef
@@ -12,45 +12,60 @@ import org.typelevel.log4cats.SelfAwareStructuredLogger
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 import scala.concurrent.duration.*
 import scala.util.Random
+import settings.LiveSettings
 
-/** The tempo and palette chosen for one track. */
-case class TrackShow(bpm: Double, palette: Palette)
+/** The track's tempo from Spotify, if it gave one, and the palette and settings the show plays it with. */
+case class TrackShow(tempo: Option[Double], palette: Palette, settings: LightShowConfig) {
+  def bpm: Double = tempo.getOrElse(settings.defaultBpm) / settings.beatsPerPulse
+}
 
 class SyncEngine[F[_]: Async] private (
                                config: AppConfig,
+                               live: LiveSettings[F],
                                zone: Zone,
                                spotify: SpotifyClient[F],
-                               tracks: Ref[F, Map[TrackId, TrackShow]],
+                               current: Ref[F, Option[(TrackId, TrackShow)]],
                                random: Random,
                                audio: Stream[F, AudioReading]
                              ):
 
   private val logger: SelfAwareStructuredLogger[F] = Slf4jLogger.getLogger[F]
-  private val show = config.lightShow
 
-  /** Tempo and palette for a track, looked up once and then cached. Logging only happens on a cache miss. */
+  private def newPalette(paletteType: PaletteType): F[Palette] =
+    Async[F].delay(Palette.random(paletteType)(using random))
+      .flatMap(Async[F].fromOption(_, new IllegalStateException(s"Couldn't make a $paletteType palette")))
+
+  /**
+   * The show for a track. A new track takes up the latest settings and gets a new palette; the show then stays the
+   * same until the track changes, so changes from the settings page wait for the next song.
+   */
   def showFor(trackId: TrackId): F[TrackShow] =
-    tracks.get.map(_.get(trackId)).flatMap {
-      case Some(existing) => Async[F].pure(existing)
-      case None =>
+    current.get.flatMap {
+      case Some((playing, show)) if playing == trackId => Async[F].pure(show)
+      case _ =>
         for {
+          settings <- live.startSong
           tempo <- spotify.getTempo(trackId).handleErrorWith { err =>
             logger.warn(s"Couldn't fetch the tempo for $trackId: $err") *> Async[F].pure(None)
           }
-          bpm = tempo.getOrElse(show.defaultBpm) / show.beatsPerPulse
-          generated <- Async[F].delay(Palette.random(show.palette)(using random).get)
-          chosen <- tracks.modify { cache =>
-            cache.get(trackId) match {
-              case Some(existing) => (cache, existing)
-              case None =>
-                val created = TrackShow(bpm, generated)
-                (cache.updated(trackId, created), created)
-            }
-          }
-          source = tempo.fold(s"default ${show.defaultBpm} BPM")(t => s"track tempo $t BPM")
-          _ <- logger.info(s"New show for $trackId: pulsing at ${chosen.bpm} BPM ($source), palette ${show.palette}:\n${chosen.palette.show}")
-        } yield chosen
+          palette <- newPalette(settings.palette)
+          created = TrackShow(tempo, palette, settings)
+          _ <- current.set(Some(trackId -> created))
+          source = tempo.fold(s"default ${settings.defaultBpm} BPM")(t => s"track tempo $t BPM")
+          _ <- logger.info(s"New show for $trackId: pulsing at ${created.bpm} BPM ($source), palette ${settings.palette}:\n${palette.show}")
+        } yield created
     }
+
+  /** Takes up the latest settings now rather than at the next song. The palette only changes if its type did. */
+  def applyNow: F[Unit] =
+    for {
+      settings <- live.startSong
+      playing <- current.get
+      _ <- playing.traverse_ { (trackId, show) =>
+        val palette = if (show.settings.palette == settings.palette) Async[F].pure(show.palette) else newPalette(settings.palette)
+        palette.flatMap(p => current.set(Some(trackId -> show.copy(palette = p, settings = settings))))
+      }
+    } yield ()
 
   /**
    * Keeps `audioRef` up to date with what the music is doing, logging when the beat locks on, is lost or changes
@@ -79,12 +94,12 @@ class SyncEngine[F[_]: Async] private (
         .evalMap(state => Clock[F].realTimeInstant.map(now => state.map(LocalPlayback(_, now))))
         .evalMap(stateRef.set)
 
-      val renderer = Stream.awakeEvery[F](show.frameIntervalMs.millis)
+      val renderer = Stream.awakeEvery[F](config.lightShow.frameIntervalMs.millis)
         .evalMap(_ => stateRef.get)
         .evalMapAccumulate(Renderer.initial) { (rendered, playback) =>
           playback.filter(_.state.isPlaying) match {
             case Some(local) => playingFrame(local, audioRef).map(Renderer.playing)
-            case None        => Clock[F].monotonic.map(now => Renderer.paused(rendered, now, zone, show.pause))
+            case None        => (Clock[F].monotonic, live.applied).mapN((now, show) => Renderer.paused(rendered, now, zone, show.pause))
           }
         }
         .map(_._2)
@@ -101,6 +116,7 @@ class SyncEngine[F[_]: Async] private (
   private def playingFrame(local: LocalPlayback, audioRef: Ref[F, Option[AudioReading]]): F[Frame] =
     for {
       track <- showFor(local.state.trackId)
+      show = track.settings
       reading <- audioRef.get
       monotonic <- Clock[F].monotonic
       now <- Clock[F].realTimeInstant
@@ -120,12 +136,13 @@ object SyncEngine:
 
   def make[F[_]: Async](
     config: AppConfig,
+    live: LiveSettings[F],
     spotify: SpotifyClient[F],
     zone: Zone,
     random: Random = new Random(),
     audio: Stream[F, AudioReading] = Stream.empty
   ): F[SyncEngine[F]] =
-    Ref.of[F, Map[TrackId, TrackShow]](Map.empty).map(new SyncEngine[F](config, zone, spotify, _, random, audio))
+    Ref.of[F, Option[(TrackId, TrackShow)]](None).map(new SyncEngine[F](config, live, zone, spotify, _, random, audio))
 
   /** How far the tempo has to move from the last one logged before it's logged again. */
   val TempoChangeToLog: Double = 0.03

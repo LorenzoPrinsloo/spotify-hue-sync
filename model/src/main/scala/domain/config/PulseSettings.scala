@@ -1,5 +1,7 @@
 package domain.config
 
+import io.circe.Codec
+
 /** Shape of one pulse. `attack` and `sustain` are fractions of a pulse; brightness runs from `restLevel` up to `restLevel + peakBoost`. */
 case class PulseSettings(
   stagger: Double = 0.15,
@@ -8,4 +10,4 @@ case class PulseSettings(
   decayCurve: Double = 2.0,
   restLevel: Double = 0.15,
   peakBoost: Double = 2.5
-)
+) derives Codec.AsObject

@@ -328,6 +328,22 @@ light-show {
 
 The config is validated when the app starts: an unknown palette name, an invalid colour, or tuning that can't work (for example `attack + sustain` of 1 or more) stops the app with a message saying what's wrong.
 
+## 8. The settings page
+
+While the app runs, `http://127.0.0.1:7071` shows every light-show setting as a slider, switch or picker, for trying settings out without editing the config file.
+
+- **Changes wait for the next song.** Each change is saved a moment after you stop moving the control, as the settings for the next song. When a new track starts, the engine takes them up along with the track's palette, and keeps them until the track changes. Nothing is read from the page while frames are drawn, and a song never changes settings part way through. Settings still waiting are marked, and **Apply now** takes them up straight away, keeping the palette unless its type changed.
+- **Nothing is saved to disk.** Changes last until the app stops. **Reset to config file** goes back to what `application.conf` set, and **Copy as config** gives the lines to paste into `application.conf` to keep what you have: only the settings that differ from the defaults.
+- **The same rules as the config file.** The page checks each change against the rules the config file is checked against, and the app checks it again when it arrives, so settings that can't work never reach the show. The beat source, audio input and frame interval only change when the app restarts, so the page shows them but can't change them. Credentials never reach the page.
+
+The page is written in Scala with [Laminar](https://laminar.dev), compiled to JavaScript by Scala.js and served by the app. The settings and their rules live in the `model` module, which builds for both the JVM and the browser, so the page and the app check settings with the same code and send them to each other as the same JSON.
+
+| Setting | Default | What it does |
+|---|---|---|
+| `ui.enabled` | `true` | Serves the settings page |
+| `ui.host` | `127.0.0.1` | Who can open it: `127.0.0.1` keeps it to this computer; `0.0.0.0` opens it to your home network, so you can use it from your phone, but then anyone on the network can change the lights |
+| `ui.port` | `7071` | The port it's served on |
+
 ## Known limitations
 
 The [roadmap](roadmap.md) tracks fixes for these.
@@ -338,6 +354,7 @@ The [roadmap](roadmap.md) tracks fixes for these.
 - **Sustained notes on their own can read as a beat.** A held chord with no drums can ripple steadily enough for the tracker to find a tempo in it: a generated chord does this after a few seconds on its own. The hold keeps short breakdowns on the old beat, but a long ambient intro may pulse at a tempo that isn't there until the drums come in.
 - **Rhythm lights assume four beats to a bar.** In other time signatures the learnt pattern smears across the bar, and the lights settle towards a pulse on the beats that most often have a kick. The bar starts wherever the tracker locked on, not on the first beat, and a new lock relearns the pattern.
 - **Pitch is where the sound is centred, not which notes are played.** A melody moving up raises it, but so does a brighter sound coming in, and two chords in the same range look the same.
+- **The settings page has no password.** On the default `ui.host` only this computer can open it; opened to the home network, anyone on it can change the lights (though not see any credentials).
 - **Certificate checks are off.** The Hue bridge serves a self-signed certificate, so the app's HTTP client is built without certificate verification. That client is shared, so Spotify calls skip verification too. A separate client for the bridge would keep verification on for Spotify.
 
 ## Regenerating the images
