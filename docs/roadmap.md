@@ -31,6 +31,8 @@ What's still to do, roughly in priority order. Tick items off as they land.
 ## Done
 
 - [x] Live beat detection from audio (BlackHole), with Spotify timing as the fallback
+- [x] Lights react to the music: brightness follows the energy, big hits flash, the treble turns the palette and hi-hats sparkle
+- [x] The live beat is held through breakdowns and short silences instead of dropping straight to Spotify timing
 
 - [x] Pulse to the track's real tempo, with a configurable fallback and beats-per-pulse
 - [x] Monochromatic, triadic and tetradic palettes

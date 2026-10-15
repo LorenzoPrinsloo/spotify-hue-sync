@@ -35,7 +35,7 @@ flowchart LR
     SE -- palette and pulse --> PAL
     SE -- when paused --> REN
     BH[BlackHole<br/>audio input] --> BT
-    BT -- tempo and beat time --> SE
+    BT -- beat, energy, hits --> SE
     SE -- frames --> DE
     HC -- read channels, start / stop streaming --> CLIP
     DE -- DTLS PSK packets --> ENT
@@ -48,9 +48,9 @@ flowchart LR
 | (root) | `Main`, which wires everything together, and `SyncEngine`, which turns playback state into light frames |
 | `client` | Everything that talks to the outside world: `SpotifyClient`, `CachedSpotifyClient`, `HueClient` and `DtlsEmitter` |
 | `audio` | `AudioInput`: captures audio from an input device such as BlackHole |
-| `beat` | Live beat detection: `Fft`, `OnsetDetector`, `BeatTracker`, `BeatState` and the `BeatTracking` stream |
-| `domain.config` | `AppConfig`, `HueConfig` and `LightShowConfig` (with `PulseSettings` and `PauseSettings`), loaded with pureconfig from `application.conf` on top of the defaults in `reference.conf` |
-| `domain.engine` | The colour engine and animation: `RGB`, `Palette`, `PaletteType`, `Order`, `Pulse` (the envelope), `Renderer` (the pause fade) and `LocalPlayback` |
+| `beat` | Live beat detection: `Fft`, `OnsetDetector`, `BeatTracker`, `BeatState`, `AudioReading` and the `BeatTracking` stream |
+| `domain.config` | `AppConfig`, `HueConfig` and `LightShowConfig` (with `PulseSettings`, `PauseSettings`, `AudioSettings` and `ReactiveSettings`), loaded with pureconfig from `application.conf` on top of the defaults in `reference.conf` |
+| `domain.engine` | The colour engine and animation: `RGB`, `Palette`, `PaletteType`, `Order`, `Pulse` (the envelope), `Effects` (the reactions to the music), `Renderer` (the pause fade) and `LocalPlayback` |
 | `domain.hue` | The Hue streaming protocol: `Zone`, `Frame`, `LightUpdate` and their binary codecs |
 | `domain.spotify` | Spotify API models: `PlaybackState`, `SpotifyToken`, `SpotifySegment`, `SpotifyCredentials` |
 | `givens.circe` | Shared circe codecs |
@@ -97,8 +97,8 @@ classDiagram
         -tracks: Ref~Map~
         +run: Stream~Frame~
         +showFor(trackId) F~TrackShow~
-        +make(config, spotify, zone, random)$ F~SyncEngine~
-        +pulseFrame(zone, palette, bpm, positionMs, settings)$ Frame
+        +make(config, spotify, zone, random, audio)$ F~SyncEngine~
+        +pulseFrame(zone, palette, pulses, settings, effects)$ Frame
     }
     class TrackShow {
         bpm: Double
@@ -120,6 +120,13 @@ classDiagram
     class Pulse {
         +level(phase, settings)$ Double
         +brightness(level, settings)$ Double
+    }
+    class Effects {
+        intensity: Double
+        hueShift: Int
+        flash: Double
+        sparkle: Option~Sparkle~
+        +at(now, reading, lights, settings)$ Effects
     }
     class Renderer {
         +playing(frame)$ RenderState and Frame
@@ -180,6 +187,7 @@ classDiagram
     SyncEngine --> Zone
     SyncEngine ..> TrackShow
     SyncEngine ..> Pulse
+    SyncEngine ..> Effects
     SyncEngine ..> Renderer
     Renderer ..> RenderState
     TrackShow *-- Palette

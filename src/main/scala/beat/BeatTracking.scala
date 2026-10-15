@@ -2,17 +2,23 @@ package beat
 
 import audio.AudioInput
 import cats.effect.Async
-import domain.config.AudioSettings
+import domain.config.{AudioSettings, ReactiveSettings}
 import fs2.Stream
 
 object BeatTracking {
 
-  /** The live beat of whatever is playing into the configured audio input; None while nothing has a clear beat. */
-  def beats[F[_]: Async](settings: AudioSettings): Stream[F, Option[BeatState]] = {
-    val tracker = TrackerSettings(minBpm = settings.minBpm, maxBpm = settings.maxBpm)
-    AudioInput.frames[F](settings.device, tracker.hop)
+  /** What the music playing into the configured audio input is doing, updated with every hop of audio. */
+  def listen[F[_]: Async](audio: AudioSettings, reactive: ReactiveSettings): Stream[F, AudioReading] = {
+    val tracker = TrackerSettings(
+      minBpm = audio.minBpm,
+      maxBpm = audio.maxBpm,
+      holdSeconds = audio.holdSeconds,
+      hitRatio = reactive.hitRatio,
+      sparkleRatio = reactive.sparkleRatio
+    )
+    AudioInput.frames[F](audio.device, tracker.hop)
       .scan(BeatTracker.initial(tracker))(_.step(_))
-      .map(_.beat)
-      .filterWithPrevious(_ != _)
+      .drop(1)
+      .map(_.reading)
   }
 }

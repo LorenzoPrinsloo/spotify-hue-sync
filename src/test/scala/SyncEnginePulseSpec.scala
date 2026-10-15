@@ -1,5 +1,5 @@
 import domain.config.PulseSettings
-import domain.engine.{Palette, RGB}
+import domain.engine.{Effects, Palette, Pulse, RGB, Sparkle}
 import domain.hue.Zone
 import munit.ScalaCheckSuite
 import org.scalacheck.Gen
@@ -78,6 +78,54 @@ class SyncEnginePulseSpec extends ScalaCheckSuite {
   property("every value stays within 0-255 whatever the tuning") {
     forAll(pulseSettings, palettes, pulses) { (s, palette, p) =>
       SyncEngine.pulseFrame(sevenLights, palette, p, s).updates.forall(_.color.toVector.forall(v => v >= 0 && v <= 255))
+    }
+  }
+
+  // -- effects --------------------------------------------------------------
+
+  property("neutral effects leave the pulse exactly as it was") {
+    forAll(channels, palettes, pulses) { (ids, palette, p) =>
+      val zone = Zone(zoneId, ids)
+      SyncEngine.pulseFrame(zone, palette, p, settings, Effects.neutral) == SyncEngine.pulseFrame(zone, palette, p, settings)
+    }
+  }
+
+  property("intensity scales every light's brightness") {
+    forAll(vivid, Gen.choose(0.0, 1.0), Gen.choose(0.3, 1.6)) { (c, p, intensity) =>
+      val lit = SyncEngine.pulseFrame(Zone(zoneId, List(0)), Palette(Vector(c)), p, settings, Effects(intensity = intensity)).updates.head.color
+      val expected = math.min(1.0, brightness(c) * Pulse.brightness(Pulse.level(p, settings), settings) * intensity)
+      math.abs(brightness(lit) - expected) <= 1.0 / 255 + 1e-6
+    }
+  }
+
+  property("a full flash turns every light white") {
+    forAll(channels, palettes, pulses) { (ids, palette, p) =>
+      SyncEngine.pulseFrame(Zone(zoneId, ids), palette, p, settings, Effects(flash = 1.0)).updates.forall(_.color == RGB.safe(255, 255, 255).get)
+    }
+  }
+
+  property("a flash only ever brightens") {
+    forAll(channels, palettes, pulses, Gen.choose(0.0, 1.0)) { (ids, palette, p, flash) =>
+      val zone = Zone(zoneId, ids)
+      val plain = SyncEngine.pulseFrame(zone, palette, p, settings)
+      val flashed = SyncEngine.pulseFrame(zone, palette, p, settings, Effects(flash = flash))
+      plain.updates.zip(flashed.updates).forall((a, b) => a.color.toVector.zip(b.color.toVector).forall((x, y) => y >= x))
+    }
+  }
+
+  property("a sparkle changes only its own light") {
+    forAll(palettes, pulses, Gen.choose(0, 6)) { (palette, p, light) =>
+      val plain = SyncEngine.pulseFrame(sevenLights, palette, p, settings)
+      val sparkled = SyncEngine.pulseFrame(sevenLights, palette, p, settings, Effects(sparkle = Some(Sparkle(light, 0.8))))
+      plain.updates.zip(sparkled.updates).zipWithIndex.forall { case ((a, b), i) => i == light || a == b }
+    }
+  }
+
+  property("a hue shift turns every light's colour by that much") {
+    forAll(vivid, Gen.choose(-25, 25)) { (c, shift) =>
+      val frame = SyncEngine.pulseFrame(Zone(zoneId, List(0)), Palette(Vector(c)), 0.25, settings, Effects(hueShift = shift))
+      val turned = frame.updates.head.color
+      math.abs(degrees(hueDistance(hue(turned), hue(c))) - math.abs(shift)) < 2.5
     }
   }
 }

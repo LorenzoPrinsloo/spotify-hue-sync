@@ -1,5 +1,5 @@
 import cats.effect.{Deferred, IO, Ref}
-import beat.BeatState
+import beat.{AudioReading, BeatState, Hit}
 import cats.effect.testkit.TestControl
 import fs2.Stream
 import client.SpotifyClient
@@ -38,7 +38,7 @@ class SyncEngineRunSpec extends CatsEffectSuite {
     playingUntil: FiniteDuration = 1.hour,
     tempo: IO[Response[IO]] = Ok("""{ "tempo": 128.0 }"""),
     seed: Long = 1L,
-    beats: Stream[IO, Option[BeatState]] = Stream.empty
+    audio: Stream[IO, AudioReading] = Stream.empty
   )
 
   private def engine(setup: Setup, tempoCalls: Ref[IO, Int]): IO[SyncEngine[IO]] =
@@ -52,7 +52,7 @@ class SyncEngineRunSpec extends CatsEffectSuite {
           tempoCalls.update(_ + 1) *> setup.tempo
       }.orNotFound
       spotify = new SpotifyClient[IO](Client.fromHttpApp(app), SpotifyCredentials("id", "secret", "refresh"), token, code)
-      built <- SyncEngine.make[IO](config(setup.show), spotify, zone, new Random(setup.seed), setup.beats)
+      built <- SyncEngine.make[IO](config(setup.show), spotify, zone, new Random(setup.seed), setup.audio)
     } yield built
 
   /** Every frame emitted in `duration` of simulated time, with the time it was emitted, plus the engine's view of the track. */
@@ -148,7 +148,7 @@ class SyncEngineRunSpec extends CatsEffectSuite {
 
   test("with a live beat, the pulses follow it") {
     val settings = LightShowConfig()
-    run(Setup(beats = Stream.emit(Some(liveBeat)) ++ Stream.never[IO]), 5.seconds).map { case (frames, show, _) =>
+    run(Setup(audio = Stream.emit(AudioReading(Some(liveBeat))) ++ Stream.never[IO]), 5.seconds).map { case (frames, show, _) =>
       val checked = playingFrames(frames)
       assert(checked.size > 100)
       checked.foreach { (t, f) =>
@@ -160,7 +160,7 @@ class SyncEngineRunSpec extends CatsEffectSuite {
 
   test("beats-per-pulse slows the pulse down relative to the live beat") {
     val settings = LightShowConfig(beatsPerPulse = 2)
-    run(Setup(show = settings, beats = Stream.emit(Some(liveBeat)) ++ Stream.never[IO]), 4.seconds).map { case (frames, show, _) =>
+    run(Setup(show = settings, audio = Stream.emit(AudioReading(Some(liveBeat))) ++ Stream.never[IO]), 4.seconds).map { case (frames, show, _) =>
       playingFrames(frames).foreach { (t, f) =>
         val expected = SyncEngine.pulseFrame(zone, show.palette, liveBeat.beatsAt(t + settings.audio.offsetMs.millis) / 2, settings.pulse)
         assertEquals(f.updates, expected.updates, s"at $t")
@@ -170,7 +170,7 @@ class SyncEngineRunSpec extends CatsEffectSuite {
 
   test("without a live beat, the pulses follow Spotify's position at the track's tempo") {
     val settings = LightShowConfig()
-    run(Setup(beats = Stream.emit(None) ++ Stream.never[IO]), 4.seconds).map { case (frames, show, _) =>
+    run(Setup(audio = Stream.emit(AudioReading(None)) ++ Stream.never[IO]), 4.seconds).map { case (frames, show, _) =>
       val checked = playingFrames(frames)
       assert(checked.size > 100)
       checked.foreach((t, f) => assertEquals(f.updates, spotifyFrame(t, show, settings).updates, s"at $t"))
@@ -179,8 +179,8 @@ class SyncEngineRunSpec extends CatsEffectSuite {
 
   test("when the beat is lost, the pulses switch back to Spotify timing") {
     val settings = LightShowConfig()
-    val beats = Stream.emit(Some(liveBeat)) ++ Stream.sleep_[IO](3.seconds) ++ Stream.emit(None) ++ Stream.never[IO]
-    run(Setup(beats = beats), 6.seconds).map { case (frames, show, _) =>
+    val audio = Stream.emit(AudioReading(Some(liveBeat))) ++ Stream.sleep_[IO](3.seconds) ++ Stream.emit(AudioReading(None)) ++ Stream.never[IO]
+    run(Setup(audio = audio), 6.seconds).map { case (frames, show, _) =>
       playingFrames(frames).foreach { (t, f) =>
         val expected =
           if (t < 3.seconds) SyncEngine.pulseFrame(zone, show.palette, liveBeat.beatsAt(t + settings.audio.offsetMs.millis), settings.pulse)
@@ -192,7 +192,7 @@ class SyncEngineRunSpec extends CatsEffectSuite {
 
   test("if beat detection fails, the show carries on with Spotify timing") {
     val settings = LightShowConfig()
-    run(Setup(beats = Stream.raiseError[IO](new RuntimeException("no audio device"))), 4.seconds).map { case (frames, show, _) =>
+    run(Setup(audio = Stream.raiseError[IO](new RuntimeException("no audio device"))), 4.seconds).map { case (frames, show, _) =>
       val checked = playingFrames(frames)
       assert(checked.size > 100)
       checked.foreach((t, f) => assertEquals(f.updates, spotifyFrame(t, show, settings).updates, s"at $t"))

@@ -25,12 +25,12 @@ object Main extends IOApp {
       emitter = new DtlsEmitter[IO](config.hue.creds)
 
       channels <- Resource.eval(hueClient.getChannels(config.hue.zoneId))
-      beats = config.lightShow.beatSource match {
-        case BeatSource.Audio   => BeatTracking.beats[IO](config.lightShow.audio)
+      audio = config.lightShow.beatSource match {
+        case BeatSource.Audio   => BeatTracking.listen[IO](config.lightShow.audio, config.lightShow.reactive)
         case BeatSource.Spotify => fs2.Stream.empty
       }
       _ <- Resource.eval(logger.info(s"Listening for the beat on '${config.lightShow.audio.device}'. If it never locks on, check that music is playing through it and that your terminal has microphone access.").whenA(config.lightShow.beatSource == BeatSource.Audio))
-      engine <- Resource.eval(SyncEngine.make[IO](config, spotify, Zone(config.hue.zoneId, channels), beats = beats))
+      engine <- Resource.eval(SyncEngine.make[IO](config, spotify, Zone(config.hue.zoneId, channels), audio = audio))
     } yield (config, hueClient, emitter, engine)
 
     resources.use { case (config, hueClient, emitter, engine) =>

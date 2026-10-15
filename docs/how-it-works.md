@@ -150,6 +150,8 @@ flowchart LR
     D --> E[Score every beat grid<br/>60-180 BPM]
     E --> F[Tempo and beat time]
     F --> G[Pulses land on the beat]
+    C --> H[Energy, treble,<br/>big hits, sparkles]
+    H --> I[Brightness, colour<br/>and flashes]
 ```
 
 1. **Capture.** `AudioInput` reads 16-bit stereo audio from the input named in `audio.device` and mixes it to mono, 512 samples (about 12 ms) at a time.
@@ -157,9 +159,9 @@ flowchart LR
 3. **Tempo and phase.** Four times a second, `BeatTracker` tries every beat grid between `min-bpm` and `max-bpm` against the last 8 seconds of onsets, and keeps the grid whose beats land on the strongest onsets. Grids that skip beats are penalised, and tempos far from 120 BPM are slightly less likely, which settles most double-or-half ambiguities. The winning grid gives both the tempo and the time of the latest beat.
 4. **Pulsing.** Each frame, the engine works out how many beats have passed since that beat, shifted by `audio.offset-ms` to make up for capture and bridge latency, and divides by `beats-per-pulse`.
 
-When the music goes quiet the tracker lets go of the beat, and the show falls back to Spotify timing until it locks on again. If the audio device can't be opened, the app logs why and carries on with Spotify timing.
+Each estimate comes with a confidence: how far the grid's beats stand above the average onset, in standard deviations. An estimate below 2.5 is ignored, and the tracker keeps the last confident beat for up to `audio.hold-seconds` (10 seconds), so a breakdown, a quiet bridge or the gap between songs doesn't knock the lights off the beat. After that the show falls back to Spotify timing until the tracker locks on again. The app logs when it locks on and when it loses the beat. If the audio device can't be opened, the app logs why and carries on with Spotify timing.
 
-The tracker is tested against generated drum patterns: it finds the exact tempo between 90 and 150 BPM, finds the tempo or exactly double or half of it between 72 and 170 BPM, and lines its beats up with the real ones to within 30 ms. It also handles silence, a change of tempo, and off-beat hi-hats. It runs over 100 times faster than real time.
+The tracker is tested against generated drum patterns: it finds the exact tempo between 90 and 150 BPM, finds the tempo or exactly double or half of it between 72 and 170 BPM, and lines its beats up with the real ones to within 30 ms. It also handles a change of tempo and off-beat hi-hats, holds the beat through silence and through a passage with no drums, and lets go once the hold runs out. It runs about 100 times faster than real time.
 
 #### Setting up BlackHole on macOS
 
@@ -201,6 +203,21 @@ Put together, this is what the seven lights show over two beats:
 ![The actual colour of each light over two beats](images/pulse-timeline.svg)
 
 The pulse is computed by the pure functions `Pulse.level`, `Pulse.brightness` and `SyncEngine.pulseFrame`, so it's easy to test: the tests cover the envelope's shape, the stagger, the tempo, the brightness at rest and at the peak, and that every value stays between 0 and 255 for any tuning.
+
+### Reacting to the music
+
+With live beat detection, the lights follow more than the beat. While it listens, the tracker also measures how the music is changing, and `Effects.at` turns that into four reactions, tuned under `reactive`:
+
+| Reaction | What the tracker hears | What the lights do |
+|---|---|---|
+| Energy | How loud the last second or two is, compared with the usual level over the last 20 seconds or so | Brightness scales with it, between `quietest` (0.35×) and `loudest` (1.6×), so a quiet verse glows and a chorus blazes |
+| Treble | How busy the hi-hats and cymbals are, compared with usual | The palette turns by up to `colour-shift` (25°) one way as the treble picks up, and the other way as it drops away |
+| Big hits | Loudness jumping above anything in the last 4 seconds by `hit-ratio` (1.15×), such as a crash or a drop | Every light flashes towards white by up to `flash`, fading over about `flash-decay-ms` |
+| Sparkles | A treble onset well above the treble background (`sparkle-ratio`), such as a hi-hat | One light, scattered across the zone, twinkles towards white by `sparkle`, fading over about `sparkle-decay-ms` |
+
+The usual level is only learnt while music plays, so a silence between songs doesn't drag it down. Nothing counts as a big hit or a sparkle until a few seconds of music have set the bar. `reactive.enabled = false` turns all four off, and with Spotify timing they don't apply.
+
+The tests use generated drums: energy rises and falls with the loudness and settles at about 1 while the level stays the same; a crash is a big hit at the moment it happens, even on top of a kick, while a steady pattern has none; and hi-hats sparkle while kicks hardly ever do. `Effects.at` and `pulseFrame` are property-tested to keep every value in range for any reading and tuning.
 
 ## 5. Pause
 
@@ -254,6 +271,14 @@ light-show {
 | `audio.device` | `BlackHole` | Audio input to listen to, matched by name |
 | `audio.offset-ms` | `100` | Shifts the lights relative to the detected beat; positive is earlier |
 | `audio.min-bpm`, `audio.max-bpm` | `60`, `180` | Tempo range the beat tracker searches |
+| `audio.hold-seconds` | `10` | How long to keep the last confident beat when the music no longer gives a clear one |
+| `reactive.enabled` | `true` | Turns the [reactions to the music](#reacting-to-the-music) on or off |
+| `reactive.quietest`, `reactive.loudest` | `0.35`, `1.6` | Brightness range as the energy changes |
+| `reactive.colour-shift` | `25` | Degrees the palette turns with the treble |
+| `reactive.flash`, `reactive.flash-decay-ms` | `0.7`, `200` | How far a big hit flashes towards white, and how fast it fades |
+| `reactive.hit-ratio` | `1.15` | How much louder than the last few seconds counts as a big hit |
+| `reactive.sparkle`, `reactive.sparkle-decay-ms` | `0.6`, `100` | How far a sparkle twinkles towards white, and how fast it fades |
+| `reactive.sparkle-ratio` | `4.0` | How far above the treble background counts as a sparkle |
 | `default-bpm` | `20` | Tempo used when Spotify can't provide one |
 | `beats-per-pulse` | `1` | Pulse once every N beats |
 | `sync-offset-ms` | `-150` | Shifts the lights relative to the audio |
@@ -276,6 +301,7 @@ The [roadmap](roadmap.md) tracks fixes for these.
 - **No token refresh.** The access token is never refreshed, and the configured refresh token isn't used yet. When the token expires (Spotify tokens last about an hour), polls come back unauthorised and are treated as "nothing playing", so the lights fade to rest until the app is restarted.
 - **Spotify timing isn't aligned to the beat.** Without live beat detection, pulses are counted from the start of the track at Spotify's tempo (or the default), so they can be offset from the actual beats. Use `beat-source = "audio"` for real beat sync.
 - **The beat tracker can count double or half time** on very slow or very fast music, which is a common ambiguity. `audio.min-bpm` and `audio.max-bpm` narrow the range.
+- **Sustained notes on their own can read as a beat.** A held chord with no drums can ripple steadily enough for the tracker to find a tempo in it: a generated chord does this after a few seconds on its own. The hold keeps short breakdowns on the old beat, but a long ambient intro may pulse at a tempo that isn't there until the drums come in.
 - **Certificate checks are off.** The Hue bridge serves a self-signed certificate, so the app's HTTP client is built without certificate verification. That client is shared, so Spotify calls skip verification too. A separate client for the bridge would keep verification on for Spotify.
 
 ## Regenerating the images

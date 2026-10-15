@@ -2,14 +2,14 @@
 
 Syncs what's playing on Spotify to Philips Hue lights in real time.
 
-It polls Spotify for the current track, pulses on the beat (detected live from your audio, or from Spotify's tempo) using a colour palette built from colour theory (analogous, complementary, triadic, tetradic or monochromatic), and streams light frames to a Hue entertainment zone over DTLS. When the music stops, the lights fade to a resting colour.
+It polls Spotify for the current track, pulses on the beat (detected live from your audio, or from Spotify's tempo) using a colour palette built from colour theory (analogous, complementary, triadic, tetradic or monochromatic), and streams light frames to a Hue entertainment zone over DTLS. With live audio, the lights also follow the music's energy, flash on big hits and sparkle with the hi-hats. When the music stops, the lights fade to a resting colour.
 
 Built with Scala 3, Cats Effect, fs2 and http4s.
 
 ## Documentation
 
 - [Architecture](docs/architecture.md): components, packages and main types, with diagrams
-- [How it works](docs/how-it-works.md): Spotify sign-in, the polling and rendering loops, the colour engine and colour theory, the pulse animation and the Hue streaming protocol
+- [How it works](docs/how-it-works.md): Spotify sign-in, the polling and rendering loops, the colour engine and colour theory, the pulse animation, live beat detection and reacting to the music, and the Hue streaming protocol
 - [Roadmap](docs/roadmap.md): what's still to do
 
 ## Configuration
