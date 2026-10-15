@@ -40,6 +40,7 @@ What's still to do, roughly in priority order. Tick items off as they land.
 - [x] The Spotify access token is renewed when it expires, so the lights keep going past the first hour
 - [x] CI: GitHub Actions lints with Scalafix and runs the tests on every push
 - [x] A settings page to try out light-show settings while the app runs, taken up as each song starts
+- [x] The entertainment area is chosen by name, and can be switched from the settings page
 - [x] Beats land on the kick rather than on off-beat hi-hats, and the tracker no longer flips between the beat and the off-beat
 - [x] Locks on once the tempo has held steady for a few seconds, so songs with a softer beat don't fall back to Spotify timing
 - [x] Pulses peak on the beat instead of a fifth of a beat after it, and captured audio is timed by its sample count, so the lights no longer trail the music

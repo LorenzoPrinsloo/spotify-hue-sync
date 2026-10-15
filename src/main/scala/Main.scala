@@ -1,13 +1,12 @@
 import cats.effect.*
 import cats.effect.{ExitCode, IOApp}
 import cats.effect.kernel.Resource
-import fs2.Stream
-import client.{CachedSpotifyClient, DtlsEmitter, HueClient}
+import client.{CachedSpotifyClient, DtlsEmitter, EntertainmentStream, HueClient}
 import cats.syntax.all.*
 import beat.BeatTracking
 import domain.config.{AppConfig, BeatSource}
+import domain.hue.{MusicArea, Zone}
 import settings.{LiveSettings, SettingsRoutes, SettingsServer}
-import domain.hue.Zone
 import fs2.io.net.tls.TLSContext
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 import org.http4s.ember.client.EmberClientBuilder
@@ -18,7 +17,6 @@ object Main extends IOApp {
   override def run(args: List[String]): IO[ExitCode] = {
     val resources = for {
       config <- Resource.eval(AppConfig.load[IO])
-      live <- Resource.eval(LiveSettings.make[IO](config.lightShow))
       tlsContext <- Resource.eval(TLSContext.Builder.forAsync[IO].insecure)
       httpClient <- EmberClientBuilder.default[IO].withTLSContext(tlsContext).build.map {c => FollowRedirect(2)(c)}
 
@@ -26,31 +24,27 @@ object Main extends IOApp {
       hueClient = new HueClient[IO](config.hue.creds, httpClient)
       emitter = new DtlsEmitter[IO](config.hue.creds)
 
-      channels <- Resource.eval(hueClient.getChannels(config.hue.zoneId))
+      lights <- Resource.eval(Lights.fromBridge[IO](hueClient))
+      areas <- Resource.eval(lights.areas)
+      area <- Resource.eval(MusicArea.choose(areas, config.lightShow.area, config.hue.zoneId).leftMap(new IllegalArgumentException(_)).liftTo[IO])
+      _ <- Resource.eval(logger.info(s"Entertainment areas on the bridge: ${areas.map(a => s"${a.name} (${a.lights} lights)").mkString(", ")}. Playing on ${area.name}."))
+      live <- Resource.eval(LiveSettings.make[IO](config.lightShow.copy(area = Some(area.name)), areas))
+      channels <- Resource.eval(hueClient.getChannels(area.id))
       audio = config.lightShow.beatSource match {
         case BeatSource.Audio   => BeatTracking.listen[IO](config.lightShow.audio.device, live.applied.map(BeatTracking.trackerSettings))
         case BeatSource.Spotify => fs2.Stream.empty
       }
       _ <- Resource.eval(logger.info(s"Listening for the beat on '${config.lightShow.audio.device}'. If it never locks on, check that music is playing through it and that your terminal has microphone access.").whenA(config.lightShow.beatSource == BeatSource.Audio))
-      engine <- Resource.eval(SyncEngine.make[IO](config, live, spotify, Zone(config.hue.zoneId, channels), audio = audio))
+      engine <- Resource.eval(SyncEngine.make[IO](config, live, spotify, Zone(area.id, channels), lights, audio = audio))
       _ <-
         if (!config.ui.enabled) Resource.unit[IO]
         else
-          SettingsServer.resource[IO](config.ui, SettingsRoutes[IO](live, engine.applyNow))
+          SettingsServer.resource[IO](config.ui, SettingsRoutes[IO](live, engine.applyNow, lights.areas))
             .evalMap(server => logger.info(s"Settings page at ${server.baseUri}; changes take effect when the next song starts"))
-    } yield (config, hueClient, emitter, engine)
+    } yield (hueClient, emitter, engine)
 
-    resources.use { (config, hueClient, emitter, engine) =>
-      for {
-        _ <- hueClient.setStreaming(config.hue.zoneId, active = true)
-        _ <- Stream.resource(emitter.resource).flatMap { connector =>
-            engine.run.evalMap(frame => emitter.send(connector, frame))
-          }
-          .onFinalize(hueClient.setStreaming(config.hue.zoneId, active = false))
-          .compile
-          .drain
-
-      } yield ExitCode.Success
+    resources.use { (hueClient, emitter, engine) =>
+      engine.run.through(EntertainmentStream.toBridge(hueClient, emitter)).compile.drain.as(ExitCode.Success)
     }
   }
 }

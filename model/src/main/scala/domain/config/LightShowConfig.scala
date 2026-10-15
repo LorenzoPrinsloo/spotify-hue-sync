@@ -3,6 +3,10 @@ package domain.config
 import domain.engine.PaletteType
 import io.circe.Codec
 
+/**
+ * The light show's settings. `area` is the entertainment area to play on, by name; without one, the app uses
+ * `hue.zone-id`, or the bridge's only music area.
+ */
 case class LightShowConfig(
   palette: PaletteType = PaletteType.Analogous,
   beatSource: BeatSource = BeatSource.Spotify,
@@ -13,7 +17,8 @@ case class LightShowConfig(
   syncOffsetMs: Long = -150,
   frameIntervalMs: Long = 16,
   pulse: PulseSettings = PulseSettings(),
-  pause: PauseSettings = PauseSettings()
+  pause: PauseSettings = PauseSettings(),
+  area: Option[String] = None
 ) derives Codec.AsObject
 
 object LightShowConfig {
@@ -23,6 +28,7 @@ object LightShowConfig {
     val p = c.pulse
     val swell = c.reactive.colourSwell
     List(
+      Option.when(c.area.exists(_.trim.isEmpty))("area can't be empty"),
       Option.when(c.defaultBpm <= 0)("default-bpm must be positive"),
       Option.when(c.beatsPerPulse <= 0)("beats-per-pulse must be positive"),
       Option.when(c.frameIntervalMs <= 0)("frame-interval-ms must be positive"),

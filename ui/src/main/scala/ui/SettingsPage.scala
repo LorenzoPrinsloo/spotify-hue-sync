@@ -3,6 +3,7 @@ package ui
 import com.raquo.laminar.api.L.*
 import domain.config.{ConfigSnippet, LightShowConfig, SettingsView}
 import domain.engine.{LightRole, PaletteType, RGB}
+import domain.hue.MusicArea
 
 /**
  * The settings page. Edits are saved a moment after the last change, as the settings for the next song; the page
@@ -13,6 +14,7 @@ final class SettingsPage {
   private val server = Var(Option.empty[SettingsView])
   private val draft = Var(Option.empty[LightShowConfig])
   private val serverProblems = Var(List.empty[String])
+  private val areas = Var(List.empty[MusicArea])
 
   private def edit(change: LightShowConfig => LightShowConfig): Unit = draft.update(_.map(change))
 
@@ -40,6 +42,10 @@ final class SettingsPage {
     div(
       cls := "page",
       Api.settings --> (answer => loaded(answer)),
+      Api.areas --> {
+        case Right(found) => areas.set(found)
+        case Left(failed) => serverProblems.set(failed)
+      },
       EventStream.periodic(2000).drop(1).flatMapSwitch(_ => Api.settings) --> (answer => received(answer)),
       draft.signal.changes.debounce(300).collect { case Some(edited) if LightShowConfig.problems(edited).isEmpty => edited }
         .flatMapSwitch(Api.save) --> (answer => received(answer)),
@@ -90,6 +96,7 @@ final class SettingsPage {
   }
 
   private def control(c: Control): HtmlElement = c match {
+    case Control.Area          => areaChoice
     case Control.Roles         => roles
     case Control.Reactions     => reactionsSwitch
     case Control.Palette       => paletteChoice
@@ -136,6 +143,28 @@ final class SettingsPage {
         ),
         span("React to the music (and use the light roles)")
       )
+    )
+
+  private def describe(area: MusicArea): String = {
+    val kind = if (area.isMusic) "" else s", ${area.kind} area"
+    s"${area.name}: ${area.rooms.mkString(", ")} (${area.lights} ${if (area.lights == 1) "light" else "lights"}$kind)"
+  }
+
+  private def areaChoice: HtmlElement =
+    div(
+      cls := "field",
+      marked("area"),
+      label(span("Area")),
+      // Built once the areas arrive, so the current area is among the options when its value is set.
+      child <-- areas.signal.map { found =>
+        select(
+          controlled(
+            value <-- draft.signal.map(_.flatMap(_.area).getOrElse("")),
+            onChange.mapToValue --> (name => edit(_.copy(area = Some(name))))
+          ),
+          found.map(a => option(value := a.name, describe(a)))
+        )
+      }
     )
 
   private def paletteChoice: HtmlElement =

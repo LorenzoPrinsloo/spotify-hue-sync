@@ -6,7 +6,7 @@ import client.SpotifyClient
 import domain.config.*
 import domain.engine.{LightRole, Palette, PaletteType, Pulse, RGB}
 import settings.LiveSettings
-import domain.hue.{Frame, HueCredentials, Zone}
+import domain.hue.{Frame, HueCredentials, MusicArea, Zone}
 import domain.spotify.{SpotifyCredentials, SpotifySession}
 import domain.spotify.types.TrackId
 import munit.CatsEffectSuite
@@ -29,10 +29,24 @@ class SyncEngineRunSpec extends CatsEffectSuite {
   private def config(show: LightShowConfig): AppConfig =
     AppConfig(
       SpotifyCredentials("id", "secret", "refresh"),
-      HueConfig(zone.id, HueCredentials("10.0.0.2", "user", "00ff")),
+      HueConfig(HueCredentials("10.0.0.2", "user", "00ff"), Some(zone.id)),
       pollingIntervalMs = 1000,
       lightShow = show
     )
+
+  private val upstairs = zone
+  private val downstairs = Zone("11111111-1111-1111-1111-111111111111", List(3, 5))
+
+  /** A bridge with two areas: upstairs, the zone the show starts on, and downstairs. */
+  private val lights: Lights[IO] = new Lights[IO] {
+    def areas: IO[List[MusicArea]] = IO.pure(Nil)
+    def zone(area: String): IO[Option[Zone]] =
+      IO.pure(area match {
+        case "Upstairs"   => Some(upstairs)
+        case "Downstairs" => Some(downstairs)
+        case _            => None
+      })
+  }
 
   private case class Setup(
     show: LightShowConfig = LightShowConfig(),
@@ -55,7 +69,7 @@ class SyncEngineRunSpec extends CatsEffectSuite {
       }.orNotFound
       spotify = new SpotifyClient[IO](Client.fromHttpApp(app), SpotifyCredentials("id", "secret", "refresh"), session, code)
       live <- LiveSettings.make[IO](setup.show)
-      built <- SyncEngine.make[IO](config(setup.show), live, spotify, zone, new Random(setup.seed), setup.audio)
+      built <- SyncEngine.make[IO](config(setup.show), live, spotify, zone, lights, new Random(setup.seed), setup.audio)
     } yield (built, live)
 
   /** Every frame emitted in `duration` of simulated time, with the time it was emitted, plus the engine's view of the track. */
@@ -254,6 +268,35 @@ class SyncEngineRunSpec extends CatsEffectSuite {
         assertEquals(kept.palette, before.palette)
         assertEquals(changed.palette.colors.size, 4)
       }
+    }
+  }
+
+  test("a different area waits for the next song, then the show plays there") {
+    val songs = Setup(show = classic.copy(area = Some("Upstairs")), trackAt = t => if (t < 3.seconds) "track-1" else "track-2")
+    TestControl.executeEmbed {
+      for {
+        calls <- Ref.of[IO, Int](0)
+        frames <- engine(songs, calls).flatMap { (e, live) =>
+          val move = IO.sleep(1500.millis) *> live.update(classic.copy(area = Some("Downstairs")))
+          e.run.evalMap(f => IO.monotonic.map(_ -> f)).interruptAfter(5.seconds).compile.toList.both(move).map(_._1)
+        }
+      } yield frames
+    }.map { frames =>
+      val playing = playingFrames(frames)
+      assert(playing.filter(_._1 < 2900.millis).forall(_._2.zoneId == zone.id), "before the next song")
+      assert(playing.filter(_._1 > 3200.millis).forall(f => f._2.zoneId == downstairs.id && f._2.updates.map(_.id) == downstairs.channels), "after it")
+      assert(playing.exists(_._1 > 3200.millis))
+    }
+  }
+
+  test("apply now moves to another area straight away; an area the bridge doesn't have leaves the show where it is") {
+    alongside(Setup(show = classic.copy(area = Some("Upstairs"))), 4.seconds) { (e, live) =>
+      for {
+        _ <- IO.sleep(1500.millis) *> live.update(classic.copy(area = Some("Downstairs"))) *> e.applyNow
+        moved <- e.showFor(track)
+        _ <- live.update(classic.copy(area = Some("Attic"))) *> e.applyNow
+        stayed <- e.showFor(track)
+      } yield assertEquals((moved.zone, stayed.zone), (downstairs, downstairs))
     }
   }
 

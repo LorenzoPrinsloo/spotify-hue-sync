@@ -4,10 +4,10 @@ import cats.effect.*
 import org.http4s.client.Client
 import org.http4s.circe.CirceEntityCodec.*
 import io.circe.generic.auto.*
-import domain.hue.HueCredentials
+import domain.hue.{HueCredentials, MusicArea}
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 import cats.syntax.all.*
-import io.circe.{Decoder, Json}
+import io.circe.{ACursor, Decoder, Json}
 import org.typelevel.ci.CIStringSyntax
 import org.http4s.*
 
@@ -40,6 +40,46 @@ class HueClient[F[_]: Async](
         }
     }
   }
+
+  /** A list of the bridge's resources of one kind, such as `room`. */
+  private def resources(kind: String): F[List[Json]] = {
+    val request = Request[F](Method.GET, baseUri / "resource" / kind).withHeaders(Header.Raw(ci"hue-application-key", creds.username))
+    httpClient.run(request).use { response =>
+      if (!response.status.isSuccess)
+        EntityDecoder.decodeText(response).flatMap(body => Async[F].raiseError(HueApiError(s"Couldn't read the bridge's $kind list: ${response.status} $body")))
+      else
+        response.as[Json].flatMap { json =>
+          json.hcursor.downField("data").as[List[Json]].leftMap(err => HueApiError(s"Unexpected $kind list from the bridge: ${err.getMessage}")).liftTo[F]
+        }
+    }
+  }
+
+  /**
+   * The bridge's entertainment areas (the Hue app's music and TV areas), music areas first, each with the rooms its
+   * lights are in and how many lights it has.
+   */
+  def areas: F[List[MusicArea]] =
+    for {
+      configurations <- resources("entertainment_configuration")
+      services <- resources("entertainment")
+      rooms <- resources("room")
+    } yield {
+      def text(json: Json, path: String*): Option[String] = path.foldLeft[ACursor](json.hcursor)(_.downField(_)).as[String].toOption
+      val deviceOf = services.flatMap(s => (text(s, "id"), text(s, "owner", "rid")).tupled).toMap
+      val roomOf = rooms.flatMap { room =>
+        val name = text(room, "metadata", "name")
+        room.hcursor.downField("children").as[List[Json]].getOrElse(Nil).flatMap(child => (text(child, "rid"), name).tupled)
+      }.toMap
+      configurations.flatMap { config =>
+        val devices = config.hcursor.downField("channels").as[List[Json]].getOrElse(Nil)
+          .flatMap(_.hcursor.downField("members").as[List[Json]].getOrElse(Nil))
+          .flatMap(member => text(member, "service", "rid").flatMap(deviceOf.get))
+          .distinct
+        (text(config, "id"), text(config, "metadata", "name")).mapN { (id, name) =>
+          MusicArea(id, name, text(config, "configuration_type").getOrElse("other"), devices.flatMap(roomOf.get).distinct, devices.size)
+        }
+      }.sortBy(area => (!area.isMusic, area.name.toLowerCase))
+    }
 
   /**
    * Tells the bridge to start (or stop) the entertainment session.

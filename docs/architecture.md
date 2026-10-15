@@ -46,7 +46,9 @@ flowchart LR
     SE -- when paused --> REN
     BH[BlackHole<br/>audio input] --> BT
     BT -- beat, energy, hits --> SE
-    SE -- frames --> DE
+    SE -- frames --> ES[EntertainmentStream]
+    ES -- start / stop streaming per area --> HC
+    ES -- frames --> DE
     UI -- change, reset, apply now --> LS
     LS -- settings, as each song starts --> SE
     HC -- read channels, start / stop streaming --> CLIP
@@ -58,14 +60,15 @@ flowchart LR
 | Package | What lives there |
 |---|---|
 | (root) | `Main`, which wires everything together, and `SyncEngine`, which turns playback state into light frames |
-| `client` | Everything that talks to the outside world: `SpotifyClient`, `CachedSpotifyClient`, `HueClient` and `DtlsEmitter` |
+| (root) | Also `Lights`: the bridge's entertainment areas and the channels in each, as the engine sees them |
+| `client` | Everything that talks to the outside world: `SpotifyClient`, `CachedSpotifyClient`, `HueClient` (including the list of entertainment areas), `DtlsEmitter`, and `EntertainmentStream`, which streams each frame to its area and moves the stream when the area changes |
 | `audio` | `AudioInput`: captures audio from an input device such as BlackHole |
 | `beat` | Live beat detection: `Fft`, `OnsetDetector`, `BeatTracker`, `BeatState`, `Groove` (the bar's kick pattern), `AudioReading` and the `BeatTracking` stream |
 | `domain.config` | `AppConfig`, `HueConfig`, `UiConfig` and `LightShowConfig` (with `PulseSettings`, `PauseSettings`, `AudioSettings`, `ReactiveSettings` and `SwellSettings`, in `model`), loaded with pureconfig from `application.conf` on top of the defaults in `reference.conf` by `LightShowConfigReaders`; `SettingsView`, `SettingsProblems` and `ConfigSnippet` for the settings page |
 | `settings` | `LiveSettings` (the settings for this session, taken up as each song starts), `SettingsRoutes` (the page and its API) and `SettingsServer` |
 | `ui` | The settings page: `SettingsPage`, `Sections` (every setting on it), `Api` |
 | `domain.engine` | The colour engine and animation: `RGB`, `Palette`, `PaletteType`, `Order`, `Pulse` (the envelopes), `Effects` (the reactions to the music), `LightRole` (each light's job), `Renderer` (the pause fade) and `LocalPlayback` |
-| `domain.hue` | The Hue streaming protocol: `Zone`, `Frame`, `LightUpdate` and their binary codecs |
+| `domain.hue` | The Hue streaming protocol: `Zone`, `Frame`, `LightUpdate` and their binary codecs; `MusicArea` (in `model`), an entertainment area and how the one to play on is chosen |
 | `domain.spotify` | Spotify API models: `PlaybackState`, `SpotifyToken`, `SpotifySession`, `SpotifySegment`, `SpotifyCredentials` |
 | `givens.circe` | Shared circe codecs |
 

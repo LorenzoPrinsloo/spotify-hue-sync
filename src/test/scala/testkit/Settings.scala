@@ -34,8 +34,9 @@ object Settings {
     resting <- Colours.rgb
     fade <- Gen.choose(0L, 10000L)
     numbers <- Gen.zip(Gen.choose(10.0, 200.0), Gen.choose(0.5, 4.0), Gen.choose(-500L, 500L))
+    area <- Gen.option(Gen.oneOf("Muziekruimte Boven", "Living room", "Lorenzo"))
   } yield {
     val (defaultBpm, beatsPerPulse, syncOffset) = numbers
-    LightShowConfig(palette, source, audio.copy(offsetMs = offset, holdSeconds = hold), reactive, defaultBpm, beatsPerPulse, syncOffset, 16, pulse, PauseSettings(resting, fade))
+    LightShowConfig(palette, source, audio.copy(offsetMs = offset, holdSeconds = hold), reactive, defaultBpm, beatsPerPulse, syncOffset, 16, pulse, PauseSettings(resting, fade), area)
   }
 }

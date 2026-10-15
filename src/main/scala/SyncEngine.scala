@@ -14,8 +14,8 @@ import scala.concurrent.duration.*
 import scala.util.Random
 import settings.LiveSettings
 
-/** The track's tempo from Spotify, if it gave one, and the palette and settings the show plays it with. */
-case class TrackShow(tempo: Option[Double], palette: Palette, settings: LightShowConfig) {
+/** The track's tempo from Spotify, if it gave one, and the palette, settings and lights the show plays it with. */
+case class TrackShow(tempo: Option[Double], palette: Palette, settings: LightShowConfig, zone: Zone) {
   def bpm: Double = tempo.getOrElse(settings.defaultBpm) / settings.beatsPerPulse
 }
 
@@ -24,6 +24,7 @@ class SyncEngine[F[_]: Async] private (
                                live: LiveSettings[F],
                                zone: Zone,
                                spotify: SpotifyClient[F],
+                               lights: Lights[F],
                                current: Ref[F, Option[(TrackId, TrackShow)]],
                                random: Random,
                                audio: Stream[F, AudioReading]
@@ -35,35 +36,54 @@ class SyncEngine[F[_]: Async] private (
     Async[F].delay(Palette.random(paletteType)(using random))
       .flatMap(Async[F].fromOption(_, new IllegalStateException(s"Couldn't make a $paletteType palette")))
 
+  /** The lights to play `settings` on: the area they name, or else the ones `before` played on (or the first zone). */
+  private def zoneFor(settings: LightShowConfig, before: Option[TrackShow]): F[Zone] = {
+    val fallback = before.fold(zone)(_.zone)
+    settings.area match {
+      case None => Async[F].pure(fallback)
+      case Some(name) if before.exists(_.settings.area.contains(name)) => Async[F].pure(fallback)
+      case Some(name) =>
+        lights.zone(name).attempt.flatMap {
+          case Right(Some(found)) => logger.info(s"Playing on the $name area").as(found)
+          case Right(None)        => logger.warn(s"There's no $name area on the bridge; staying where the show is").as(fallback)
+          case Left(err)          => logger.warn(s"Couldn't read the $name area from the bridge, staying where the show is: $err").as(fallback)
+        }
+    }
+  }
+
   /**
-   * The show for a track. A new track takes up the latest settings and gets a new palette; the show then stays the
-   * same until the track changes, so changes from the settings page wait for the next song.
+   * The show for a track. A new track takes up the latest settings, its area's lights and a new palette; the show
+   * then stays the same until the track changes, so changes from the settings page wait for the next song.
    */
   def showFor(trackId: TrackId): F[TrackShow] =
     current.get.flatMap {
       case Some((playing, show)) if playing == trackId => Async[F].pure(show)
-      case _ =>
+      case before =>
         for {
           settings <- live.startSong
           tempo <- spotify.getTempo(trackId).handleErrorWith { err =>
             logger.warn(s"Couldn't fetch the tempo for $trackId: $err") *> Async[F].pure(None)
           }
           palette <- newPalette(settings.palette)
-          created = TrackShow(tempo, palette, settings)
+          lit <- zoneFor(settings, before.map(_._2))
+          created = TrackShow(tempo, palette, settings, lit)
           _ <- current.set(Some(trackId -> created))
           source = tempo.fold(s"default ${settings.defaultBpm} BPM")(t => s"track tempo $t BPM")
           _ <- logger.info(s"New show for $trackId: pulsing at ${created.bpm} BPM ($source), palette ${settings.palette}:\n${palette.show}")
         } yield created
     }
 
-  /** Takes up the latest settings now rather than at the next song. The palette only changes if its type did. */
+  /**
+   * Takes up the latest settings now rather than at the next song, moving to another area if they name one. The palette
+   * only changes if its type did.
+   */
   def applyNow: F[Unit] =
     for {
       settings <- live.startSong
       playing <- current.get
       _ <- playing.traverse_ { (trackId, show) =>
         val palette = if (show.settings.palette == settings.palette) Async[F].pure(show.palette) else newPalette(settings.palette)
-        palette.flatMap(p => current.set(Some(trackId -> show.copy(palette = p, settings = settings))))
+        (palette, zoneFor(settings, Some(show))).flatMapN((p, lit) => current.set(Some(trackId -> show.copy(palette = p, settings = settings, zone = lit))))
       }
     } yield ()
 
@@ -99,7 +119,10 @@ class SyncEngine[F[_]: Async] private (
         .evalMapAccumulate(Renderer.initial) { (rendered, playback) =>
           playback.filter(_.state.isPlaying) match {
             case Some(local) => playingFrame(local, audioRef).map(Renderer.playing)
-            case None        => (Clock[F].monotonic, live.applied).mapN((now, show) => Renderer.paused(rendered, now, zone, show.pause))
+            case None =>
+              (Clock[F].monotonic, live.applied, current.get).mapN { (now, show, playing) =>
+                Renderer.paused(rendered, now, playing.fold(zone)(_._2.zone), show.pause)
+              }
           }
         }
         .map(_._2)
@@ -129,8 +152,8 @@ class SyncEngine[F[_]: Async] private (
       }
       effects = reading
         .filter(_ => show.reactive.enabled)
-        .fold(Effects.neutral)(r => Effects.at(heardAt, r, zone.channels.size, show.reactive))
-    } yield SyncEngine.pulseFrame(zone, track.palette, pulses, show.pulse, effects)
+        .fold(Effects.neutral)(r => Effects.at(heardAt, r, track.zone.channels.size, show.reactive))
+    } yield SyncEngine.pulseFrame(track.zone, track.palette, pulses, show.pulse, effects)
 
 object SyncEngine:
 
@@ -139,10 +162,11 @@ object SyncEngine:
     live: LiveSettings[F],
     spotify: SpotifyClient[F],
     zone: Zone,
+    lights: Lights[F],
     random: Random = new Random(),
     audio: Stream[F, AudioReading] = Stream.empty
   ): F[SyncEngine[F]] =
-    Ref.of[F, Option[(TrackId, TrackShow)]](None).map(new SyncEngine[F](config, live, zone, spotify, _, random, audio))
+    Ref.of[F, Option[(TrackId, TrackShow)]](None).map(new SyncEngine[F](config, live, zone, spotify, lights, _, random, audio))
 
   /** How far the tempo has to move from the last one logged before it's logged again. */
   val TempoChangeToLog: Double = 0.03

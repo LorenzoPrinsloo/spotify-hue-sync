@@ -1,7 +1,7 @@
 package client
 
 import cats.effect.{IO, Ref}
-import domain.hue.HueCredentials
+import domain.hue.{HueCredentials, MusicArea}
 import munit.CatsEffectSuite
 import org.http4s.*
 import org.http4s.client.Client
@@ -53,5 +53,29 @@ class HueClientSpec extends CatsEffectSuite {
       key <- Ref.of[IO, Option[String]](None)
       result <- new HueClient[IO](creds, bridge(Status.Ok, """{ "data": [] }""", key)).getChannels("zone-1").attempt
     } yield assert(result match { case Left(_: HueApiError) => true; case _ => false }, result.toString)
+  }
+
+  test("lists the entertainment areas, music first, with the rooms their lights are in") {
+    val configurations =
+      """{ "data": [
+        |  { "id": "tv", "metadata": { "name": "TV" }, "configuration_type": "screen",
+        |    "channels": [ { "channel_id": 0, "members": [ { "service": { "rid": "e-3" } } ] } ] },
+        |  { "id": "up", "metadata": { "name": "Upstairs" }, "configuration_type": "music",
+        |    "channels": [ { "channel_id": 0, "members": [ { "service": { "rid": "e-1" } } ] },
+        |                  { "channel_id": 1, "members": [ { "service": { "rid": "e-2" } } ] },
+        |                  { "channel_id": 2, "members": [ { "service": { "rid": "e-2" } } ] } ] } ] }""".stripMargin
+    val services = """{ "data": [ { "id": "e-1", "owner": { "rid": "d-1" } }, { "id": "e-2", "owner": { "rid": "d-2" } }, { "id": "e-3", "owner": { "rid": "d-3" } } ] }"""
+    val rooms =
+      """{ "data": [ { "metadata": { "name": "Hall" }, "children": [ { "rid": "d-1" } ] },
+        |            { "metadata": { "name": "Bedroom" }, "children": [ { "rid": "d-2" } ] },
+        |            { "metadata": { "name": "Lounge" }, "children": [ { "rid": "d-3" } ] } ] }""".stripMargin
+    val bridge = Client.fromHttpApp(HttpRoutes.of[IO] {
+      case GET -> Root / "clip" / "v2" / "resource" / "entertainment_configuration" => Ok(configurations)
+      case GET -> Root / "clip" / "v2" / "resource" / "entertainment"               => Ok(services)
+      case GET -> Root / "clip" / "v2" / "resource" / "room"                        => Ok(rooms)
+    }.orNotFound)
+    new HueClient[IO](creds, bridge).areas.assertEquals(
+      List(MusicArea("up", "Upstairs", "music", List("Hall", "Bedroom"), 2), MusicArea("tv", "TV", "screen", List("Lounge"), 1))
+    )
   }
 }

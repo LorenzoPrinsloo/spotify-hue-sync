@@ -21,6 +21,13 @@ object Sections {
 
   private def millis(v: Double): Long = math.round(v)
 
+  val area: Section = Section(
+    "Entertainment area",
+    "Where the show plays. The bridge plays one area at a time; when the show moves, the old area's lights go back to how they were.",
+    List(Control.Area),
+    Nil
+  )
+
   val roles: Section = Section(
     "Light roles",
     "What each light does. The pattern repeats across your lights in channel order.",
@@ -129,5 +136,5 @@ object Sections {
     )
   )
 
-  val all: List[Section] = List(roles, colourSwell, pulseShape, reactions, timing, palette)
+  val all: List[Section] = List(area, roles, colourSwell, pulseShape, reactions, timing, palette)
 }

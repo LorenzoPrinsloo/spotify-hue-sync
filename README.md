@@ -25,7 +25,7 @@ Credentials are read from environment variables. Copy `.env.example` to `.env`, 
 | `HUE_BRIDGE_ADDRESS` | IP address of your Hue bridge |
 | `HUE_USERNAME` | Hue application key |
 | `HUE_PSK` | Hue entertainment client key |
-| `HUE_ZONE_ID` | ID of the entertainment zone to sync |
+| `HUE_ZONE_ID` | Optional. ID of the entertainment area to play on; `light-show.area` picks one by name instead, and with only one music area on the bridge neither is needed |
 
 To pulse on the actual beat, route your audio through [BlackHole](https://github.com/ExistentialAudio/BlackHole) and set `light-show.beat-source = "audio"`; the app then detects the beat live (see [Live beat detection](docs/how-it-works.md#live-beat-detection) for setup).
 

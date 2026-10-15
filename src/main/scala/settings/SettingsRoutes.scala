@@ -3,17 +3,18 @@ package settings
 import cats.effect.Async
 import cats.syntax.all.*
 import domain.config.{LightShowConfig, SettingsProblems}
+import domain.hue.MusicArea
 import org.http4s.{HttpRoutes, Request, Response, StaticFile}
 import org.http4s.circe.CirceEntityCodec.*
 import org.http4s.dsl.Http4sDsl
 
 /**
- * The settings page and its API: read the settings, change or reset the ones for the next song, or take them up
- * straight away with `applyNow`.
+ * The settings page and its API: read the settings, change or reset the ones for the next song, take them up straight
+ * away with `applyNow`, and list the bridge's entertainment areas with `areas`.
  */
 object SettingsRoutes {
 
-  def apply[F[_]: Async](live: LiveSettings[F], applyNow: F[Unit]): HttpRoutes[F] = {
+  def apply[F[_]: Async](live: LiveSettings[F], applyNow: F[Unit], areas: F[List[MusicArea]]): HttpRoutes[F] = {
     val dsl = Http4sDsl[F]
     import dsl.*
 
@@ -24,6 +25,7 @@ object SettingsRoutes {
       case request @ GET -> Root               => page(request, "index.html")
       case request @ GET -> Root / "main.js"   => page(request, "main.js")
       case GET -> Root / "api" / "settings"    => live.view.flatMap(Ok(_))
+      case GET -> Root / "api" / "areas"       => areas.flatTap(live.areasFound).flatMap(Ok(_))
       case request @ PUT -> Root / "api" / "settings" =>
         request.attemptAs[LightShowConfig].value.flatMap {
           case Left(failure) => BadRequest(SettingsProblems(List(failure.message)))

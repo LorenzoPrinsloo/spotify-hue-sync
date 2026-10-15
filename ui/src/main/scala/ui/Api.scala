@@ -3,6 +3,7 @@ package ui
 import com.raquo.laminar.api.L.*
 import com.raquo.airstream.web.FetchStream
 import domain.config.{LightShowConfig, SettingsProblems, SettingsView}
+import domain.hue.MusicArea
 import io.circe.Decoder
 import io.circe.parser.decode
 import io.circe.syntax.*
@@ -17,6 +18,14 @@ object Api {
   )
 
   def settings: EventStream[Either[List[String], SettingsView]] = answer(fetch.get("/api/settings"))
+
+  /** The bridge's entertainment areas, music areas first. */
+  def areas: EventStream[Either[List[String], List[MusicArea]]] =
+    fetch.get("/api/areas").recoverToEither.map {
+      case Right((status, body)) if status < 300 => read[List[MusicArea]](body)
+      case Right((status, _))                    => Left(List(s"Couldn't list the bridge's areas (status $status)"))
+      case Left(failure)                         => Left(List(s"Couldn't reach the app: ${failure.getMessage}"))
+    }
 
   def save(next: LightShowConfig): EventStream[Either[List[String], SettingsView]] =
     answer(fetch.put("/api/settings", _.body(next), _.headers("Content-Type" -> "application/json")))

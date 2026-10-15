@@ -2,6 +2,7 @@ package settings
 
 import cats.effect.{IO, Ref}
 import domain.config.{BeatSource, LightShowConfig, PulseSettings, SettingsProblems, SettingsView}
+import domain.hue.MusicArea
 import io.circe.syntax.*
 import munit.CatsEffectSuite
 import org.http4s.*
@@ -12,6 +13,7 @@ class SettingsRoutesSpec extends CatsEffectSuite {
 
   private val fromFile = LightShowConfig(beatSource = BeatSource.Audio)
   private val sharper = fromFile.copy(pulse = PulseSettings().copy(attack = 0.05))
+  private val areas = List(MusicArea("a-1", "Upstairs", "music", List("Hall", "Bedroom"), 4), MusicArea("a-2", "Downstairs", "music", List("Kitchen"), 3))
 
   /** The routes, the settings behind them, and how many times they've asked to apply the settings now. */
   private case class Fixture(app: HttpApp[IO], live: LiveSettings[IO], applied: Ref[IO, Int])
@@ -20,7 +22,7 @@ class SettingsRoutesSpec extends CatsEffectSuite {
     for {
       live <- LiveSettings.make[IO](fromFile)
       applied <- Ref.of[IO, Int](0)
-    } yield Fixture(SettingsRoutes[IO](live, applied.update(_ + 1)).orNotFound, live, applied)
+    } yield Fixture(SettingsRoutes[IO](live, applied.update(_ + 1), IO.pure(areas)).orNotFound, live, applied)
 
   test("the settings are read as JSON") {
     routes.flatMap(_.app.run(Request(Method.GET, uri"/api/settings")).flatMap(_.as[SettingsView]))
@@ -61,6 +63,20 @@ class SettingsRoutesSpec extends CatsEffectSuite {
     } yield {
       assertEquals(reset.pending, fromFile)
       assertEquals(times, 1)
+    }
+  }
+
+  test("the areas are listed, and only those can be chosen") {
+    for {
+      fixture <- routes
+      listed <- fixture.app.run(Request(Method.GET, uri"/api/areas")).flatMap(_.as[List[MusicArea]])
+      known <- fixture.app.run(Request[IO](Method.PUT, uri"/api/settings").withEntity(fromFile.copy(area = Some("downstairs"))))
+      unknown <- fixture.app.run(Request[IO](Method.PUT, uri"/api/settings").withEntity(fromFile.copy(area = Some("Attic"))))
+      reason <- unknown.as[SettingsProblems]
+    } yield {
+      assertEquals(listed, areas)
+      assertEquals((known.status, unknown.status), (Status.Ok, Status.BadRequest))
+      assertEquals(reason, SettingsProblems(List("area must be one of \"Upstairs\", \"Downstairs\"")))
     }
   }
 

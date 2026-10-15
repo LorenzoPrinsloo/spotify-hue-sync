@@ -280,6 +280,12 @@ A frame is 52 bytes plus 7 per channel, so 101 bytes for seven lights. The colou
 
 5. When the app stops, the stream's finalizer calls `setStreaming(active = false)` and the DTLS connector is closed.
 
+### Choosing the area
+
+The bridge can stream to one entertainment area at a time: the music and TV areas set up in the Hue app. At startup the app lists them and plays on the one `light-show.area` names, matched ignoring case. Without a name it uses the area whose id is in `hue.zone-id`, or the bridge's only music area; if it can't tell which to use, or the name doesn't match, it stops with a message listing the areas there are.
+
+The area is one of the light-show settings, so the settings page can change it too, and it changes when the next song starts. Each frame names its area, and `EntertainmentStream` follows them: the first frame for a new area stops the stream on the old one, whose lights go back to how they were, then starts streaming on the new one with a fresh DTLS session. Each area's channels are read from the bridge the first time it's used. If the area can't be found when the song starts, the show stays where it is and logs why.
+
 ## 7. Configuration
 
 All light-show settings live under `light-show` in `src/main/resources/reference.conf`, with a description of each. Override any of them in `application.conf`:
@@ -295,6 +301,7 @@ light-show {
 
 | Setting | Default | What it does |
 |---|---|---|
+| `area` | none | The entertainment area to play on, by name, such as `"Muziekruimte Boven"`. Without one, the app uses `hue.zone-id` (`HUE_ZONE_ID`), or the bridge's only music area. See [Choosing the area](#choosing-the-area) |
 | `palette` | `analogous` | Palette type (see [Palettes](#palettes)) |
 | `beat-source` | `spotify` | `audio` to follow the live beat, `spotify` to follow playback position and tempo |
 | `audio.device` | `BlackHole` | Audio input to listen to, matched by name |
@@ -332,6 +339,7 @@ The config is validated when the app starts: an unknown palette name, an invalid
 
 While the app runs, `http://127.0.0.1:7071` shows every light-show setting as a slider, switch or picker, for trying settings out without editing the config file.
 
+- **Choose the area.** A picker lists the bridge's entertainment areas with their rooms and number of lights; moving the show to another happens at the next song, like any other change.
 - **Changes wait for the next song.** Each change is saved a moment after you stop moving the control, as the settings for the next song. When a new track starts, the engine takes them up along with the track's palette, and keeps them until the track changes. Nothing is read from the page while frames are drawn, and a song never changes settings part way through. Settings still waiting are marked, and **Apply now** takes them up straight away, keeping the palette unless its type changed.
 - **Nothing is saved to disk.** Changes last until the app stops. **Reset to config file** goes back to what `application.conf` set, and **Copy as config** gives the lines to paste into `application.conf` to keep what you have: only the settings that differ from the defaults.
 - **The same rules as the config file.** The page checks each change against the rules the config file is checked against, and the app checks it again when it arrives, so settings that can't work never reach the show. The beat source, audio input and frame interval only change when the app restarts, so the page shows them but can't change them. Credentials never reach the page.
@@ -355,6 +363,7 @@ The [roadmap](roadmap.md) tracks fixes for these.
 - **Rhythm lights assume four beats to a bar.** In other time signatures the learnt pattern smears across the bar, and the lights settle towards a pulse on the beats that most often have a kick. The bar starts wherever the tracker locked on, not on the first beat, and a new lock relearns the pattern.
 - **Pitch is where the sound is centred, not which notes are played.** A melody moving up raises it, but so does a brighter sound coming in, and two chords in the same range look the same.
 - **The settings page has no password.** On the default `ui.host` only this computer can open it; opened to the home network, anyone on it can change the lights (though not see any credentials).
+- **One area at a time.** The bridge streams to one entertainment area at once, and an area holds at most 10 lights, so lights from rooms that don't fit in one area can't all follow the music together.
 - **Certificate checks are off.** The Hue bridge serves a self-signed certificate, so the app's HTTP client is built without certificate verification. That client is shared, so Spotify calls skip verification too. A separate client for the bridge would keep verification on for Spotify.
 
 ## Regenerating the images

@@ -23,28 +23,25 @@ class DtlsEmitter[F[_]: Async](creds: HueCredentials):
   private lazy val pskBytes = ByteVector.fromHex(creds.psk).getOrElse(ByteVector.empty).toArray
   private lazy val pskStore = new AdvancedSinglePskStore(creds.username, pskBytes)
   private val destination = new InetSocketAddress(creds.address, 2100)
-  
-  // 3. Setup Configuration and Connector
-  private lazy val connector: DTLSConnector = {
+
+  /** A new connector, so each entertainment session starts with a fresh handshake. */
+  private def newConnector: DTLSConnector = {
     DtlsConfig.register()
     UdpConfig.register()
-    val clientConfig = Configuration.getStandard()
-
-    // In 3.x, setPskStore was renamed to setAdvancedPskStore
-    val builder = DtlsConnectorConfig.builder(clientConfig)
+    val builder = DtlsConnectorConfig.builder(Configuration.getStandard())
       .setAddress(new InetSocketAddress(0))
       .setAdvancedPskStore(pskStore)
-
     new DTLSConnector(builder.build())
   }
 
   def resource: Resource[F, DTLSConnector] =
     Resource.make(
       Async[F].delay {
+        val connector = newConnector
         connector.start()
         connector
       } <* logger.info("DTLS Connector started")
-    )(c => Async[F].delay(c.stop()) <* logger.info("DTLS Connector stopped"))
+    )(c => Async[F].delay(c.destroy()) <* logger.info("DTLS Connector stopped"))
 
   def send(connector: DTLSConnector, frame: Frame): F[Unit] =
     Codec[Frame].encode(frame).toEither match {
