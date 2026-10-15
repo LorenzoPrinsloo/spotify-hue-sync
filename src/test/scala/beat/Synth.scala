@@ -32,14 +32,15 @@ object Synth {
     hats: Boolean = true,
     seed: Long = 1L,
     loudness: Double = 1.0,
-    kicks: Boolean = true
+    kicks: Boolean = true,
+    hatLoudness: Double = 0.25
   ): (Array[Float], Vector[Double]) = {
     val rnd = new Random(seed)
     val buffer = Array.fill((seconds * sr).toInt)((rnd.nextGaussian() * 0.01 * loudness).toFloat)
     val beats = Iterator.iterate(firstBeat)(t => t + 60.0 / bpmAt(t)).takeWhile(_ < seconds).toVector
     beats.foreach { t =>
       if (kicks) hit(buffer, t, 0.8 * loudness, bright = false, rnd)
-      if (hats) hit(buffer, t + 30.0 / bpmAt(t), 0.25 * loudness, bright = true, rnd)
+      if (hats) hit(buffer, t + 30.0 / bpmAt(t), hatLoudness * loudness, bright = true, rnd)
     }
     (buffer, beats)
   }

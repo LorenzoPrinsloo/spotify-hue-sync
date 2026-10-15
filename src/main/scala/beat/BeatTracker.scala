@@ -7,9 +7,16 @@ case class AudioFrame(samples: Array[Float], capturedAt: FiniteDuration)
 
 /**
  * The current tempo, and the time of one beat; every other beat follows from those two. `confidence` is how far
- * above average the onsets on the beat grid are, in standard deviations.
+ * above average the onsets on the beat grid are, in standard deviations. `doubt` is how much stronger another
+ * phase has been than this grid's, built up over recent estimates.
  */
-case class BeatState(bpm: Double, beatAt: FiniteDuration, updatedAt: FiniteDuration, confidence: Double = 1.0) {
+case class BeatState(
+  bpm: Double,
+  beatAt: FiniteDuration,
+  updatedAt: FiniteDuration,
+  confidence: Double = 1.0,
+  doubt: Double = 0.0
+) {
   def period: FiniteDuration = (60.0 / bpm).seconds.toNanos.nanos
 
   /** Beats elapsed between `beatAt` and `time`; the fractional part is the position within the current beat. */
@@ -46,6 +53,9 @@ case class TrackerSettings(
   silenceRms: Double = 0.002,
   minConfidence: Double = 2.5,
   keepConfidence: Double = 1.2,
+  steadySeconds: Double = 3.0,
+  phaseSwitch: Double = 0.6,
+  phaseMemorySeconds: Double = 10.0,
   holdSeconds: Double = 10.0,
   hitRatio: Double = 1.15,
   sparkleRatio: Double = 4.0
@@ -56,6 +66,7 @@ case class TrackerSettings(
   val minFrames: Int = (4.0 * frameRate).toInt
   val hitWindow: Int = (4.0 * frameRate).toInt
   val sparkleWindow: Int = (2.0 * frameRate).toInt
+  val steadyEstimates: Int = math.max(1, (steadySeconds * frameRate / reestimateEvery).round.toInt)
 
   /** Smoothing factor of an exponential average with the given time constant, per hop. */
   def smoothing(seconds: Double): Double = 1 - math.exp(-(hop / sampleRate) / seconds)
@@ -113,6 +124,8 @@ case class BeatTracker(
   loudness: Vector[Double],
   frames: Long,
   beat: Option[BeatState],
+  bass: Vector[Double] = Vector.empty,
+  recent: Vector[BeatState] = Vector.empty,
   surges: Vector[Double] = Vector.empty,
   treble: Vector[Double] = Vector.empty,
   levels: Levels = Levels(),
@@ -128,18 +141,24 @@ case class BeatTracker(
     val now = frame.capturedAt
     val (nextDetector, onset) = detector.step(frame.samples)
     val nextEnvelope = (envelope :+ onset.flux).takeRight(s.capacity)
+    val nextBass = (bass :+ onset.bassFlux).takeRight(s.capacity)
     val nextLoudness = (loudness :+ onset.rms).takeRight(s.capacity)
     val n = frames + 1
 
-    // Locking on takes a confident estimate; once locked, a weaker one that agrees on the tempo keeps the beat, since
-    // a tempo that stays put is evidence in itself.
+    // A tempo that stays put is evidence in itself: real songs often score well under `minConfidence` while the tempo
+    // doesn't budge. So the tracker locks on to a confident estimate, or to a few seconds of estimates that agree;
+    // once locked, a weaker estimate that agrees on the tempo keeps the beat.
+    val estimated =
+      if (n % s.reestimateEvery != 0 || nextEnvelope.size < s.minFrames) None
+      else BeatTracker.estimate(s, nextEnvelope, nextBass, nextLoudness, now, beat)
+    val nextRecent = if (n % s.reestimateEvery != 0) recent else (recent ++ estimated).takeRight(s.steadyEstimates)
+    val steady = BeatTracker.steady(nextRecent, s)
     val nextBeat =
       if (n % s.reestimateEvery != 0) beat
       else if (nextEnvelope.size < s.minFrames) None
       else
-        BeatTracker
-          .estimate(s, nextEnvelope, nextLoudness, now, beat)
-          .filter(e => e.confidence >= s.minConfidence || (e.confidence >= s.keepConfidence && beat.exists(BeatTracker.sameTempo(_, e))))
+        estimated
+          .filter(e => e.confidence >= s.minConfidence || steady || (e.confidence >= s.keepConfidence && beat.exists(BeatTracker.sameTempo(_, e))))
           .orElse(beat.filter(held => (now - held.updatedAt).toNanos / 1e9 <= s.holdSeconds))
 
     // Treble-led onsets are hi-hats and cymbals rather than the click of a kick, whose bass outweighs its treble.
@@ -162,6 +181,8 @@ case class BeatTracker(
     copy(
       detector = nextDetector,
       envelope = nextEnvelope,
+      bass = nextBass,
+      recent = nextRecent,
       loudness = nextLoudness,
       frames = n,
       beat = nextBeat,
@@ -187,6 +208,13 @@ object BeatTracker {
   val TempoTolerance: Double = 0.04
 
   def sameTempo(a: BeatState, b: BeatState): Boolean = math.abs(b.bpm - a.bpm) / a.bpm < TempoTolerance
+
+  /** Whether the last `steadySeconds` of estimates all agree on the tempo, and are typically at least `keepConfidence`. */
+  def steady(recent: Vector[BeatState], s: TrackerSettings): Boolean =
+    recent.size >= s.steadyEstimates && {
+      val middle = recent.sortBy(_.bpm).apply(recent.size / 2)
+      recent.forall(sameTempo(middle, _)) && median(recent.map(_.confidence)) >= s.keepConfidence
+    }
 
   def median(values: Vector[Double]): Double =
     if (values.isEmpty) 0.0 else values.sorted.apply(values.size / 2)
@@ -219,49 +247,55 @@ object BeatTracker {
     if (i < 0 || i + 1 >= e.length) 0.0 else e(i) * (1 - t) + e(i + 1) * t
   }
 
+  private def smoothed(values: Vector[Double]): Array[Double] = {
+    val raw = values.toArray
+    Array.tabulate(raw.length)(i => 0.25 * raw(math.max(0, i - 1)) + 0.5 * raw(i) + 0.25 * raw(math.min(raw.length - 1, i + 1)))
+  }
+
+  /** Average onset strength on a beat grid with this period that ends `offset` frames before the latest frame. */
+  private def gridMean(env: Array[Double], period: Double, offset: Double): (Double, Int) = {
+    var sum = 0.0
+    var k = 0
+    var position = env.length - 1 - offset
+    while (position >= 0) {
+      sum += interpolate(env, position)
+      k += 1
+      position -= period
+    }
+    (if (k == 0) 0.0 else sum / k, k)
+  }
+
+  private def bestOffset(env: Array[Double], period: Double): (Double, Double, Int) = {
+    val offsets = Iterator.iterate(0.0)(_ + 0.5).takeWhile(_ < period)
+    offsets.map { o => val (m, k) = gridMean(env, period, o); (o, m, k) }.maxBy(_._2)
+  }
+
+  /**
+   * The tempo and how confident it is come from all the onsets, `envelope`. Where the beats fall comes from the low
+   * end alone, `bass`: the kick lands on the beat, while hi-hats usually land between beats and can outweigh it.
+   */
   def estimate(
     s: TrackerSettings,
     envelope: Vector[Double],
+    bass: Vector[Double],
     loudness: Vector[Double],
     now: FiniteDuration,
     previous: Option[BeatState]
   ): Option[BeatState] = {
     val recentLoudness = loudness.takeRight((2 * s.frameRate).toInt)
     val quiet = recentLoudness.isEmpty || recentLoudness.sum / recentLoudness.size < s.silenceRms
-    val raw = envelope.toArray
-    val env = Array.tabulate(raw.length) { i =>
-      0.25 * raw(math.max(0, i - 1)) + 0.5 * raw(i) + 0.25 * raw(math.min(raw.length - 1, i + 1))
-    }
+    val env = smoothed(envelope)
     val mean = env.sum / env.length
     val spread = math.sqrt(env.map(v => (v - mean) * (v - mean)).sum / env.length)
     if (quiet || spread <= 1e-9) None
     else {
-      val last = env.length - 1
-
-      /** Average onset strength on a beat grid with this period that ends `offset` frames before the latest frame. */
-      def gridMean(period: Double, offset: Double): (Double, Int) = {
-        var sum = 0.0
-        var k = 0
-        var position = last - offset
-        while (position >= 0) {
-          sum += interpolate(env, position)
-          k += 1
-          position -= period
-        }
-        (if (k == 0) 0.0 else sum / k, k)
-      }
-
-      def bestOffset(period: Double): (Double, Double, Int) = {
-        val offsets = Iterator.iterate(0.0)(_ + 0.5).takeWhile(_ < period)
-        offsets.map { o => val (m, k) = gridMean(period, o); (o, m, k) }.maxBy(_._2)
-      }
 
       /**
        * How well a beat grid explains the onsets: how far above average its beats are, weighted by how many hits it
        * covers (so a grid isn't rewarded for skipping every other beat) and by how plausible its tempo is.
        */
       def score(period: Double): Double = {
-        val (_, m, k) = bestOffset(period)
+        val (_, m, k) = bestOffset(env, period)
         (m - mean) / spread * math.sqrt(k.toDouble) * prior(60 * s.frameRate / period)
       }
 
@@ -275,10 +309,34 @@ object BeatTracker {
         case _                                                                  => measuredBpm
       }
       val beatFrames = 60 * s.frameRate / bpm
-      val (offset, gridLevel, _) = bestOffset(beatFrames)
-      val beatAt = now - (offset * s.hopDuration.toNanos).toLong.nanos
+      val (_, gridLevel, _) = bestOffset(env, beatFrames)
       val confidence = (gridLevel - mean) / spread
-      Some(BeatState(bpm, beatAt, now, confidence))
+
+      val low = smoothed(bass)
+      val lowMean = low.sum / math.max(1, low.length)
+      val phaseFrom = if (low.length == env.length && low.exists(_ > lowMean + 1e-9)) low else env
+      val phaseMean = phaseFrom.sum / phaseFrom.length
+      val (bestAt, bestLevel, _) = bestOffset(phaseFrom, beatFrames)
+      // Once there's a beat, follow its grid (allowing for a little drift) and only move to another phase once that
+      // has been stronger for a while: the beat and the off-beat are often close for a few bars, and flipping between
+      // them throws the lights half a beat out.
+      val (offset, doubt) = previous.filter(p => math.abs(bpm - p.bpm) / p.bpm < TempoTolerance) match {
+        case Some(p) =>
+          val sinceBeat = (now - p.beatAt).toNanos.toDouble / p.period.toNanos
+          val continued = (sinceBeat - math.floor(sinceBeat)) * p.period.toNanos / s.hopDuration.toNanos
+          val (followAt, followLevel) = (-4 to 4).map { step =>
+            val o = continued + step * 0.5
+            val wrapped = if (o < 0) o + beatFrames else if (o >= beatFrames) o - beatFrames else o
+            (wrapped, gridMean(phaseFrom, beatFrames, wrapped)._1)
+          }.maxBy(_._2)
+          val phaseSpread = math.sqrt(phaseFrom.map(v => (v - phaseMean) * (v - phaseMean)).sum / phaseFrom.length)
+          val memory = 1 - math.exp(-(now - p.updatedAt).toNanos / 1e9 / s.phaseMemorySeconds)
+          val nextDoubt = p.doubt + ((bestLevel - followLevel) / math.max(phaseSpread, 1e-9) - p.doubt) * memory
+          if (nextDoubt > s.phaseSwitch) (bestAt, 0.0) else (followAt, nextDoubt)
+        case None => (bestAt, 0.0)
+      }
+      val beatAt = now - (offset * s.hopDuration.toNanos).toLong.nanos
+      Some(BeatState(bpm, beatAt, now, confidence, doubt))
     }
   }
 }

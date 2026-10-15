@@ -3,10 +3,11 @@ package beat
 /**
  * What one hop of audio sounded like.
  *
- * `flux` is the onset strength the beat tracker uses (low end weighted most), `trebleFlux` the same for the high
- * end alone (hi-hats, cymbals, consonants), and `rms` the hop's loudness.
+ * `flux` is the onset strength the beat tracker uses (low end weighted most), `bassFlux` the same for the low end
+ * alone (kick and bass), `trebleFlux` for the high end alone (hi-hats, cymbals, consonants), and `rms` the hop's
+ * loudness.
  */
-case class Onset(flux: Double, trebleFlux: Double, rms: Double)
+case class Onset(flux: Double, bassFlux: Double, trebleFlux: Double, rms: Double)
 
 /**
  * Spectral-flux onset detection: how much louder each frequency got since the previous window. Drums and note
@@ -22,16 +23,17 @@ case class OnsetDetector(window: Int, history: Vector[Float], previous: Vector[D
     val windowed = Array.tabulate(window)(i => padded(i) * OnsetDetector.hann(window)(i))
     val magnitudes = Fft.magnitudes(windowed)
     val spectrum = magnitudes.map(m => math.log1p(100 * m))
-    val (flux, trebleFlux) =
-      if (previous.isEmpty) (0.0, 0.0)
+    val (flux, bassFlux, trebleFlux) =
+      if (previous.isEmpty) (0.0, 0.0, 0.0)
       else {
         val rise = spectrum.indices.map(k => math.max(0.0, spectrum(k) - previous(k)))
         val (low, high) = rise.splitAt(OnsetDetector.lowBins)
         val treble = rise.drop(OnsetDetector.trebleBins)
-        (low.sum / low.size + OnsetDetector.highWeight * high.sum / high.size, treble.sum / treble.size)
+        val bass = low.sum / low.size
+        (bass + OnsetDetector.highWeight * high.sum / high.size, bass, treble.sum / treble.size)
       }
     val rms = if (hop.isEmpty) 0.0 else math.sqrt(hop.map(s => s.toDouble * s).sum / hop.length)
-    val onset = Onset(flux, trebleFlux, rms)
+    val onset = Onset(flux, bassFlux, trebleFlux, rms)
     (OnsetDetector(window, samples, spectrum.toVector), onset)
   }
 }

@@ -57,6 +57,30 @@ class BeatTrackerSpec extends ScalaCheckSuite {
     assertEqualsDouble(Synth.track(audio).beat.get.bpm, 95.0, 1.5)
   }
 
+  test("puts the beat on the kick, even when off-beat hi-hats are louder") {
+    for (seed <- 1L to 4L; bpm <- Seq(100.0, 124.0, 140.0)) {
+      val (audio, beats) = Synth.drums(12, _ => bpm, seed = seed, hatLoudness = 5.0)
+      val beat = Synth.track(audio).beat.get
+      assert(Synth.phaseErrorMs(beat, beats) < 30, s"seed $seed at $bpm BPM: ${Synth.phaseErrorMs(beat, beats)} ms")
+    }
+  }
+
+  private val period = 60.0 / 124
+
+  test("a few bars where the off-beat is stronger don't move the beat") {
+    val third = Iterator.iterate(0.25)(_ + period).dropWhile(_ < 15).next() - 15
+    val (after, beats) = Synth.drums(6, _ => 124, firstBeat = third, seed = 3)
+    val audio = Synth.concat(Synth.drums(12, _ => 124)._1, Synth.drums(3, _ => 124, firstBeat = 0.25 + period / 2, seed = 2)._1, after)
+    val beat = Synth.track(audio).beat.get
+    assert(Synth.phaseErrorMs(beat, beats.map(_ + 15)) < 30, Synth.phaseErrorMs(beat, beats.map(_ + 15)).toString)
+  }
+
+  test("if the music moves to the other phase for good, the beat follows it") {
+    val (after, beats) = Synth.drums(20, _ => 124, firstBeat = 0.25 + period / 2, seed = 2)
+    val beat = Synth.track(Synth.concat(Synth.drums(12, _ => 124)._1, after)).beat.get
+    assert(Synth.phaseErrorMs(beat, beats.map(_ + 12)) < 30, Synth.phaseErrorMs(beat, beats.map(_ + 12)).toString)
+  }
+
   test("follows a change of tempo") {
     val (audio, _) = Synth.drums(22, t => if (t < 10) 100 else 128)
     assertEqualsDouble(Synth.track(audio).beat.get.bpm, 128.0, 1.5)
@@ -102,21 +126,23 @@ class BeatTrackerSpec extends ScalaCheckSuite {
     assert(duringPad.forall(_.exists(bpm => math.abs(bpm - 128) < 1.5)), duringPad.distinct.toString)
   }
 
-  private val weakBeat = Synth.mix(Synth.drums(16, _ => 124, loudness = 0.15)._1, Synth.noise(16, loudness = 0.2))
+  private val weakBeat = Synth.mix(Synth.drums(20, _ => 124, loudness = 0.15)._1, Synth.noise(20, loudness = 0.2))
 
   test("once locked, keeps the beat through a long passage where it's weaker but steady") {
     val beat = Synth.track(Synth.concat(Synth.drums(10, _ => 124)._1, weakBeat)).beat
     assertEqualsDouble(beat.map(_.bpm).getOrElse(0.0), 124.0, 1.5)
   }
 
-  test("that passage would lose the beat if weaker estimates couldn't keep it") {
+  test("that passage would lose the beat if only confident estimates counted") {
     val strict = Synth.settings.copy(keepConfidence = Synth.settings.minConfidence)
     val tracked = Synth.frames(Synth.concat(Synth.drums(10, _ => 124)._1, weakBeat)).foldLeft(BeatTracker.initial(strict))(_.step(_))
     assertEquals(tracked.beat, None)
   }
 
-  test("a weak beat on its own isn't enough to lock on") {
-    assertEquals(Synth.track(weakBeat).beat, None)
+  test("a weak but steady beat is enough to lock on, after a few seconds") {
+    val readings = Synth.readings(weakBeat)
+    assertEqualsDouble(Synth.at(readings, 15.5).beat.map(_.bpm).getOrElse(0.0), 124.0, 1.5)
+    assert(Synth.at(readings, 6.0).beat.isEmpty, "it shouldn't lock on before the tempo has held for a few seconds")
   }
 
   test("noise alone never produces a beat") {
