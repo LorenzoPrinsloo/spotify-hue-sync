@@ -70,39 +70,39 @@ class SyncEngineRunSpec extends CatsEffectSuite {
   private def isResting(f: Frame): Boolean = f.updates.forall(_.color == resting)
 
   test("sequence numbers count up with every frame and wrap after 255") {
-    run(Setup(), 6.seconds).map { case (frames, _, _) =>
+    run(Setup(), 6.seconds).map { (frames, _, _) =>
       assert(frames.size > 300, frames.size)
       assertEquals(frames.map(_._2.sequence), frames.indices.map(_ % 256).toList)
     }
   }
 
   test("pulses at the track's tempo, fetched once per track") {
-    run(Setup(show = LightShowConfig(beatsPerPulse = 2)), 5.seconds).map { case (_, show, calls) =>
+    run(Setup(show = LightShowConfig(beatsPerPulse = 2)), 5.seconds).map { (_, show, calls) =>
       assertEquals(show.bpm, 64.0)
       assertEquals(calls, 1)
     }
   }
 
   test("falls back to the default BPM when Spotify won't give a tempo") {
-    run(Setup(show = LightShowConfig(defaultBpm = 90), tempo = Forbidden()), 3.seconds).map { case (_, show, _) =>
+    run(Setup(show = LightShowConfig(defaultBpm = 90), tempo = Forbidden()), 3.seconds).map { (_, show, _) =>
       assertEquals(show.bpm, 90.0)
     }
   }
 
   test("falls back to the default BPM when the tempo request fails") {
     run(Setup(show = LightShowConfig(defaultBpm = 45), tempo = IO.raiseError(new RuntimeException("network down"))), 3.seconds)
-      .map { case (_, show, _) => assertEquals(show.bpm, 45.0) }
+      .map { (_, show, _) => assertEquals(show.bpm, 45.0) }
   }
 
   test("uses the configured palette type") {
-    run(Setup(show = LightShowConfig(palette = PaletteType.Tetradic), seed = 42L), 3.seconds).map { case (_, show, _) =>
+    run(Setup(show = LightShowConfig(palette = PaletteType.Tetradic), seed = 42L), 3.seconds).map { (_, show, _) =>
       assertEquals(show.palette, Palette.random(PaletteType.Tetradic)(using new Random(42L)).get)
     }
   }
 
   test("while playing, each of the zone's channels shows its palette colour") {
     val flat = LightShowConfig(palette = PaletteType.Triadic, pulse = PulseSettings(restLevel = 1.0, peakBoost = 0.0))
-    run(Setup(show = flat, seed = 7L), 4.seconds).map { case (frames, show, _) =>
+    run(Setup(show = flat, seed = 7L), 4.seconds).map { (frames, show, _) =>
       val playingFrames = frames.collect { case (t, f) if t > 1100.millis => f }
       assert(playingFrames.nonEmpty)
       playingFrames.foreach { f =>
@@ -113,14 +113,14 @@ class SyncEngineRunSpec extends CatsEffectSuite {
   }
 
   test("with nothing playing, every light shows the resting colour") {
-    run(Setup(playingUntil = Duration.Zero), 4.seconds).map { case (frames, _, _) =>
+    run(Setup(playingUntil = Duration.Zero), 4.seconds).map { (frames, _, _) =>
       assert(frames.nonEmpty)
       assert(frames.forall((_, f) => isResting(f) && f.updates.map(_.id) == zone.channels))
     }
   }
 
   test("when playback stops, the lights fade to the resting colour and hold it") {
-    run(Setup(playingUntil = 3.seconds), 8.seconds).map { case (frames, _, _) =>
+    run(Setup(playingUntil = 3.seconds), 8.seconds).map { (frames, _, _) =>
       def distance(f: Frame) = f.updates.map(u => u.color.toVector.zip(resting.toVector).map((a, b) => math.abs(a - b)).sum).sum
       val beforeStop = frames.collect { case (t, f) if t > 1100.millis && t < 2900.millis => f }
       val fading = frames.collect { case (t, f) if t > 3100.millis && t < 4900.millis => f }
@@ -151,7 +151,7 @@ class SyncEngineRunSpec extends CatsEffectSuite {
 
   test("with a live beat, the pulses follow it") {
     val settings = classic
-    run(Setup(show = settings, audio = Stream.emit(AudioReading(Some(liveBeat))) ++ Stream.never[IO]), 5.seconds).map { case (frames, show, _) =>
+    run(Setup(show = settings, audio = Stream.emit(AudioReading(Some(liveBeat))) ++ Stream.never[IO]), 5.seconds).map { (frames, show, _) =>
       val checked = playingFrames(frames)
       assert(checked.size > 100)
       checked.foreach { (t, f) =>
@@ -163,7 +163,7 @@ class SyncEngineRunSpec extends CatsEffectSuite {
 
   test("beats-per-pulse slows the pulse down relative to the live beat") {
     val settings = classic.copy(beatsPerPulse = 2)
-    run(Setup(show = settings, audio = Stream.emit(AudioReading(Some(liveBeat))) ++ Stream.never[IO]), 4.seconds).map { case (frames, show, _) =>
+    run(Setup(show = settings, audio = Stream.emit(AudioReading(Some(liveBeat))) ++ Stream.never[IO]), 4.seconds).map { (frames, show, _) =>
       playingFrames(frames).foreach { (t, f) =>
         val expected = SyncEngine.pulseFrame(zone, show.palette, liveBeat.beatsAt(t + settings.audio.offsetMs.millis) / 2, settings.pulse)
         assertEquals(f.updates, expected.updates, s"at $t")
@@ -173,7 +173,7 @@ class SyncEngineRunSpec extends CatsEffectSuite {
 
   test("without a live beat, the pulses follow Spotify's position at the track's tempo") {
     val settings = classic
-    run(Setup(show = settings, audio = Stream.emit(AudioReading(None)) ++ Stream.never[IO]), 4.seconds).map { case (frames, show, _) =>
+    run(Setup(show = settings, audio = Stream.emit(AudioReading(None)) ++ Stream.never[IO]), 4.seconds).map { (frames, show, _) =>
       val checked = playingFrames(frames)
       assert(checked.size > 100)
       checked.foreach((t, f) => assertEquals(f.updates, spotifyFrame(t, show, settings).updates, s"at $t"))
@@ -183,7 +183,7 @@ class SyncEngineRunSpec extends CatsEffectSuite {
   test("when the beat is lost, the pulses switch back to Spotify timing") {
     val settings = classic
     val audio = Stream.emit(AudioReading(Some(liveBeat))) ++ Stream.sleep_[IO](3.seconds) ++ Stream.emit(AudioReading(None)) ++ Stream.never[IO]
-    run(Setup(show = settings, audio = audio), 6.seconds).map { case (frames, show, _) =>
+    run(Setup(show = settings, audio = audio), 6.seconds).map { (frames, show, _) =>
       playingFrames(frames).foreach { (t, f) =>
         val expected =
           if (t < 3.seconds) SyncEngine.pulseFrame(zone, show.palette, liveBeat.beatsAt(t + settings.audio.offsetMs.millis), settings.pulse)
@@ -195,7 +195,7 @@ class SyncEngineRunSpec extends CatsEffectSuite {
 
   test("with live audio, rhythm lights pulse together on the live beat and colour lights swell every other beat") {
     val settings = LightShowConfig()
-    run(Setup(audio = Stream.emit(AudioReading(Some(liveBeat))) ++ Stream.never[IO]), 5.seconds).map { case (frames, show, _) =>
+    run(Setup(audio = Stream.emit(AudioReading(Some(liveBeat))) ++ Stream.never[IO]), 5.seconds).map { (frames, show, _) =>
       val checked = playingFrames(frames)
       assert(checked.size > 100)
       val roles = LightRole.assign(settings.reactive.roles, zone.channels.size)
@@ -217,7 +217,7 @@ class SyncEngineRunSpec extends CatsEffectSuite {
 
   test("if beat detection fails, the show carries on with Spotify timing") {
     val settings = LightShowConfig()
-    run(Setup(audio = Stream.raiseError[IO](new RuntimeException("no audio device"))), 4.seconds).map { case (frames, show, _) =>
+    run(Setup(audio = Stream.raiseError[IO](new RuntimeException("no audio device"))), 4.seconds).map { (frames, show, _) =>
       val checked = playingFrames(frames)
       assert(checked.size > 100)
       checked.foreach((t, f) => assertEquals(f.updates, spotifyFrame(t, show, settings).updates, s"at $t"))

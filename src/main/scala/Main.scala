@@ -3,7 +3,7 @@ import cats.effect.{ExitCode, IOApp}
 import cats.effect.kernel.Resource
 import fs2.Stream
 import client.{CachedSpotifyClient, DtlsEmitter, HueClient}
-import cats.implicits.*
+import cats.syntax.all.*
 import beat.BeatTracking
 import domain.config.{AppConfig, BeatSource}
 import domain.hue.Zone
@@ -33,7 +33,7 @@ object Main extends IOApp {
       engine <- Resource.eval(SyncEngine.make[IO](config, spotify, Zone(config.hue.zoneId, channels), audio = audio))
     } yield (config, hueClient, emitter, engine)
 
-    resources.use { case (config, hueClient, emitter, engine) =>
+    resources.use { (config, hueClient, emitter, engine) =>
       for {
         _ <- hueClient.setStreaming(config.hue.zoneId, active = true)
         _ <- Stream.resource(emitter.resource).flatMap { connector =>

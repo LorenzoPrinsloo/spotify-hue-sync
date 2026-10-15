@@ -16,7 +16,7 @@ class PlaybackStateSpec extends munit.FunSuite {
       |}""".stripMargin
 
   test("decodes the fields the engine needs from Spotify's player response") {
-    val state = decode[PlaybackState](playing).toOption.get
+    val state = decode[PlaybackState](playing).fold(err => fail(err.toString), identity)
     assertEquals(state.trackId.value, "4uLU6hMCjMI75M1A2tKUQC")
     assertEquals(state.progress, 61500.millis)
     assert(state.isPlaying)

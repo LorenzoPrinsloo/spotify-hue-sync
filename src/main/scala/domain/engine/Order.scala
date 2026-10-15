@@ -1,4 +1,4 @@
 package domain.engine
 
-enum Order:
+enum Order derives CanEqual:
   case Flat, Interspersed

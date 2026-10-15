@@ -10,7 +10,6 @@ import org.http4s.client.Client
 import org.http4s.circe.CirceEntityCodec.*
 import org.http4s.headers.Authorization
 import org.http4s.client.dsl.Http4sClientDsl
-import org.http4s.dsl.io.{GET, Ok, POST, QueryParamDecoderMatcher, Root}
 import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.implicits.*
 import org.typelevel.ci.CIStringSyntax
@@ -19,7 +18,6 @@ import com.comcast.ip4s.{ipv4, port}
 
 import scala.concurrent.duration.*
 import org.http4s.dsl.io.*
-import cats.implicits.*
 import fs2.io.net.Network
 import fs2.text
 import io.circe.Json

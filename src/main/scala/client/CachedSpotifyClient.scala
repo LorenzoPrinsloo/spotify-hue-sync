@@ -6,7 +6,7 @@ import domain.spotify.*
 import domain.spotify.types.TrackId
 import org.http4s.client.Client
 import org.typelevel.log4cats.slf4j.Slf4jLogger
-import client.SpotifyClient
+
 import fs2.io.net.Network
 
 private class CachedSpotifyClient[F[_]: Async: Network](

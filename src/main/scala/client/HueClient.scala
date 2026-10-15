@@ -6,7 +6,7 @@ import org.http4s.circe.CirceEntityCodec.*
 import io.circe.generic.auto.*
 import domain.hue.HueCredentials
 import org.typelevel.log4cats.slf4j.Slf4jLogger
-import cats.implicits.*
+import cats.syntax.all.*
 import io.circe.{Decoder, Json}
 import org.typelevel.ci.CIStringSyntax
 import org.http4s.*

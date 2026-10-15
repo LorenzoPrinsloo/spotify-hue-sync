@@ -38,10 +38,14 @@ set -a; source .env; set +a
 sbt run
 ```
 
-## Testing
+## Testing and linting
 
 ```sh
-sbt test
+sbt check   # lint, then test: what CI runs on every push
+sbt test    # tests only
+sbt fix     # apply Scalafix's rewrites
 ```
+
+[Scalafix](https://scalacenter.github.io/scalafix/) checks the code against the rules in `.scalafix.conf` (tests use `.scalafix.test.conf`): Scalafix's own rules, [xuwei-k's scalafix-rules](https://github.com/xuwei-k/scalafix-rules) and [Typelevel's](https://github.com/typelevel/typelevel-scalafix). They catch Scala 2 leftovers (`implicit`, `cats.implicits`), unsafe calls (`Option.get`, `isInstanceOf`, running IO outside the app's entry point) and simplifications such as `Option.when`. `sbt lint` fails on any error; most come with a rewrite that `sbt fix` applies.
 
 Property-based tests (munit + ScalaCheck) cover the colour theory, every palette type, the pulse envelope, the light roles, the beat tracker, kick pattern and pitch (against generated audio), the pause fade, config loading and validation, and the Hue packet format. The Spotify and Hue clients are tested against fake HTTP servers, and the whole engine runs against a fake Spotify on Cats Effect's simulated clock.

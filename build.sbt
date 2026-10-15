@@ -7,12 +7,27 @@ val catsVersion       = "2.13.0"
 val pureConfigVersion = "0.17.10"
 val scandiumVersion = "3.14.0"
 
+ThisBuild / scalaVersion := scala3Version
+// Scalafix's semantic rules read the SemanticDB the compiler writes alongside the classes.
+ThisBuild / semanticdbEnabled := true
+ThisBuild / scalafixDependencies ++= Seq(
+  "com.github.xuwei-k" %% "scalafix-rules"     % "0.6.30",
+  "org.typelevel"      %% "typelevel-scalafix" % "0.6.0"
+)
+
+// `sbt fix` applies the rules' rewrites; `sbt lint` fails if anything is left; `sbt check` lints, then tests.
+addCommandAlias("fix", "scalafixAll")
+addCommandAlias("lint", "scalafixAll --check")
+addCommandAlias("check", ";lint ;test")
+
 lazy val root = project
   .in(file("."))
   .settings(
     name         := "spotify-hue-sync",
     version      := "0.1.0-SNAPSHOT",
     scalaVersion := scala3Version,
+
+    Test / scalafixConfig := Some(file(".scalafix.test.conf")),
 
     scalacOptions ++= Seq(
       "-deprecation",

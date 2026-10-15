@@ -79,7 +79,7 @@ object DocImages {
       val c = Color.getHSBColor(deg / 360f, 1f, 1f)
       f"""<path d="M${fmt(x1)},${fmt(y1)} A$outer,$outer 0 0 1 ${fmt(x2)},${fmt(y2)} L${fmt(x3)},${fmt(y3)} A$inner,$inner 0 0 0 ${fmt(x4)},${fmt(y4)} Z" fill="rgb(${c.getRed},${c.getGreen},${c.getBlue})"/>"""
     }.mkString("\n")
-    val markers = colours.map { case (c, label) =>
+    val markers = colours.map { (c, label) =>
       val h = hsb(c)(0).toDouble
       val markerRadius = if (byBrightness) hsb(c)(2) * (outer + inner) / 2 else (outer + inner) / 2
       val (mx, my) = polar(cx, cy, markerRadius, h)
@@ -171,10 +171,10 @@ object DocImages {
          |${text(px(t), top + h + 20, s"${if (t == t.floor) t.toInt.toString else fmt(t)}s", 11, "middle", fill = "#666")}""".stripMargin
     }.mkString("\n")
     val lines = series.map { s =>
-      val d = s.points.map { case (x, y) => s"${fmt(px(x))},${fmt(py(y))}" }.mkString(" ")
+      val d = s.points.map { (x, y) => s"${fmt(px(x))},${fmt(py(y))}" }.mkString(" ")
       s"""<polyline points="$d" fill="none" stroke="${s.colour}" stroke-width="${s.width}" stroke-linejoin="round"/>"""
     }.mkString("\n")
-    val legend = series.zipWithIndex.map { case (s, i) =>
+    val legend = series.zipWithIndex.map { (s, i) =>
       val lx = left + i * ((w) / series.size.max(1))
       s"""<line x1="${fmt(lx)}" y1="${fmt(height - 18.0)}" x2="${fmt(lx + 22)}" y2="${fmt(height - 18.0)}" stroke="${s.colour}" stroke-width="3"/>
          |${text(lx + 28, height - 14.0, s.label, 11)}""".stripMargin

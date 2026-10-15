@@ -26,7 +26,7 @@ case class Groove(
     if (now <= step) copy(sum = sum + kick, count = count + 1)
     else {
       // The step just finished learns what was heard in it; any skipped over (the grid can jump) learn nothing.
-      val heard = if (count == 0) None else Some(sum / count)
+      val heard = Option.unless(count == 0)(sum / count)
       val learning = heard.fold(this) { power =>
         val slot = Groove.slot(step)
         val bars = learnt / Groove.Steps

@@ -80,7 +80,7 @@ class PaletteSpec extends ScalaCheckSuite {
   }
 
   test("light 0 gets the first colour and the palette repeats after the last") {
-    val p = generate(PaletteType.Triadic, 7L).get
+    val p = generate(PaletteType.Triadic, 7L).getOrElse(fail("no palette"))
     assertEquals(p.getColor(0), p.colors(0))
     assertEquals(p.getColor(2), p.colors(2))
     assertEquals(p.getColor(3), p.colors(0))
@@ -103,7 +103,7 @@ class PaletteSpec extends ScalaCheckSuite {
   }
 
   test("along part of the way blends towards the neighbouring colour") {
-    val p = generate(PaletteType.Analogous, 7L).get
+    val p = generate(PaletteType.Analogous, 7L).getOrElse(fail("no palette"))
     assertEquals(p.along(1, 0.5), p.colors(1).turnTowards(p.colors(2), 0.5))
     assertEquals(p.along(1, -0.25), p.colors(0).turnTowards(p.colors(1), 0.75))
   }

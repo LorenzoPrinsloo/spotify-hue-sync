@@ -19,7 +19,7 @@ object Frame {
           uuidCodec) ::
         list(Codec[LightUpdate])
     ).xmap(
-      { case (sequence, zoneId, updates) => Frame(zoneId, updates, sequence) },
+      { (sequence, zoneId, updates) => Frame(zoneId, updates, sequence) },
       frame => (frame.sequence & 0xff, frame.zoneId, frame.updates)
     )
 }

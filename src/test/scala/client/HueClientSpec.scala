@@ -38,7 +38,7 @@ class HueClientSpec extends CatsEffectSuite {
     for {
       key <- Ref.of[IO, Option[String]](None)
       result <- new HueClient[IO](creds, bridge(Status.Ok, zoneJson(""), key)).getChannels("zone-1").attempt
-    } yield assert(result.left.exists(_.isInstanceOf[HueApiError]), result.toString)
+    } yield assert(result match { case Left(_: HueApiError) => true; case _ => false }, result.toString)
   }
 
   test("a bridge error is reported with the status") {
@@ -52,6 +52,6 @@ class HueClientSpec extends CatsEffectSuite {
     for {
       key <- Ref.of[IO, Option[String]](None)
       result <- new HueClient[IO](creds, bridge(Status.Ok, """{ "data": [] }""", key)).getChannels("zone-1").attempt
-    } yield assert(result.left.exists(_.isInstanceOf[HueApiError]), result.toString)
+    } yield assert(result match { case Left(_: HueApiError) => true; case _ => false }, result.toString)
   }
 }

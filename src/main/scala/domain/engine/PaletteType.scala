@@ -1,6 +1,6 @@
 package domain.engine
 
-enum PaletteType:
+enum PaletteType derives CanEqual:
   case Complementary
   case Monochromatic
   case Analogous

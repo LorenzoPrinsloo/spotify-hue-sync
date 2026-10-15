@@ -5,7 +5,7 @@ package domain.engine
  * and move along the palette as the music goes higher or lower, and `Pulse` lights do the classic pulse that travels
  * across the zone.
  */
-enum LightRole {
+enum LightRole derives CanEqual {
   case Pulse, Rhythm, Colour
 }
 

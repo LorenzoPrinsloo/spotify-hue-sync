@@ -2,8 +2,7 @@ package domain.config
 
 import cats.effect.kernel.Sync
 import domain.spotify.SpotifyCredentials
-import pureconfig.ConfigReader
-import pureconfig._
+import pureconfig.*
 
 case class AppConfig(
   spotify: SpotifyCredentials,

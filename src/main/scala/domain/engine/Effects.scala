@@ -28,12 +28,6 @@ case class Effects(
     math.min(1.0, flash + sparkle.filter(_.light == light).fold(0.0)(_.amount))
 }
 
-/** A twinkle on one light, by `amount` towards white. */
-case class Sparkle(light: Int, amount: Double)
-
-/** The bar's kick pattern (see [[beat.Groove]]), and how many beats into the beat grid the show is. */
-case class Rhythm(groove: Vector[Double], beats: Double)
-
 object Effects {
 
   /** No reaction: the pulse exactly as configured. */
