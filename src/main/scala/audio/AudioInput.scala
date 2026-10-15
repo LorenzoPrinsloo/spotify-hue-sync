@@ -39,24 +39,34 @@ object AudioInput {
           Async[F].blocking {
             val mixer = AudioSystem.getMixerInfo.find(_.getName == name).get
             val line = AudioSystem.getMixer(mixer).getLine(lineInfo).asInstanceOf[TargetDataLine]
-            line.open(format, hop * format.getFrameSize * 4)
+            line.open(format, hop * format.getFrameSize * 16)
             line.start()
             line
           }
       }
     )(line => Async[F].blocking { line.stop(); line.close() })
 
+  /** Reads within this long of each other anchor the capture clock: long enough to catch a prompt read. */
+  private val anchorSeconds = 10
+
   def frames[F[_]: Async](device: String, hop: Int): Stream[F, AudioFrame] =
     Stream.resource(open[F](device, hop)).flatMap { line =>
-      Stream.repeatEval {
-        for {
-          samples <- Async[F].blocking {
-            val bytes = new Array[Byte](hop * format.getFrameSize)
-            val read = line.read(bytes, 0, bytes.length)
-            toMono(bytes, read)
-          }
-          now <- Clock[F].monotonic
-        } yield AudioFrame(samples, now)
-      }
+      Stream
+        .repeatEval {
+          for {
+            samples <- Async[F].blocking {
+              val bytes = new Array[Byte](hop * format.getFrameSize)
+              val read = line.read(bytes, 0, bytes.length)
+              toMono(bytes, read)
+            }
+            readAt <- Clock[F].monotonic
+          } yield (samples, readAt)
+        }
+        .mapAccumulate(CaptureClock(format.getSampleRate.toDouble, (anchorSeconds * format.getSampleRate / hop).toInt)) {
+          case (clock, (samples, readAt)) =>
+            val (next, capturedAt) = clock.next(samples.length, readAt)
+            (next, AudioFrame(samples, capturedAt))
+        }
+        .map(_._2)
     }
 }

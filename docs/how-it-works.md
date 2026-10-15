@@ -154,7 +154,7 @@ flowchart LR
     H --> I[Brightness, colour<br/>and flashes]
 ```
 
-1. **Capture.** `AudioInput` reads 16-bit stereo audio from the input named in `audio.device` and mixes it to mono, 512 samples (about 12 ms) at a time.
+1. **Capture.** `AudioInput` reads 16-bit stereo audio from the input named in `audio.device` and mixes it to mono, 512 samples (about 12 ms) at a time. `CaptureClock` times each block by how many samples have arrived, anchored to the promptest read of the last 10 seconds, rather than by when the read returned: reads come back in bursts, and stamping audio that had been waiting with the time it was read made beats look up to 30 ms later than they were.
 2. **Onsets.** For each frame, `OnsetDetector` takes a 1024-sample FFT and measures how much louder each frequency got since the last frame (spectral flux). Kicks and note attacks make it spike. Frequencies below about 300 Hz count most, because the kick and bass usually carry the beat while hi-hats fill in between.
 3. **Tempo and phase.** Four times a second, `BeatTracker` tries every beat grid between `min-bpm` and `max-bpm` against the last 8 seconds of onsets, and keeps the grid whose beats land on the strongest onsets. Grids that skip beats are penalised, and tempos far from 120 BPM are slightly less likely, which settles most double-or-half ambiguities. The winning grid gives both the tempo and the time of the latest beat.
 4. **Pulsing.** Each frame, the engine works out how many beats have passed since that beat, shifted by `audio.offset-ms` to make up for capture and bridge latency, and divides by `beats-per-pulse`.
@@ -184,6 +184,8 @@ Each pulse has three phases, set by `pulse.attack`, `pulse.sustain` and `pulse.d
 
 ![The pulse envelope over one beat: attack, sustain and decay](images/pulse-envelope.svg)
 
+The pulse is timed so the attack ends on the beat (`Pulse.onBeat`): a light rises during the last fifth of the previous beat and is at full brightness on the beat itself. Rising from the beat instead would leave the peak a fifth of a beat late, which is 100 ms at 120 BPM and more on slower songs, a delay no fixed offset can correct.
+
 The curve value `p` becomes a brightness multiplier of `rest-level + peak-boost × p`, which is `0.15 + 2.5 × p` by default: a light glows at 15% of its colour's brightness at rest, and is boosted 2.65× at the peak.
 
 ### Keeping the colour at the peak
@@ -196,7 +198,7 @@ A property test checks that at the peak the hue never moves by more than 2°.
 
 ### The wave
 
-Each light starts its pulse `pulse.stagger` (0.15) of a beat after the one before, so the pulse travels across the zone instead of flashing all lights at once.
+Light 0 peaks on the beat, and each light after it peaks `pulse.stagger` (0.15) of a beat after the one before, so the pulse travels across the zone instead of flashing all lights at once.
 
 ![Each light's brightness over two beats, offset by 0.15 of a beat per light](images/pulse-wave.svg)
 

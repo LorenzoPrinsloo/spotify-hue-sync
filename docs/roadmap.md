@@ -35,6 +35,7 @@ What's still to do, roughly in priority order. Tick items off as they land.
 - [x] The live beat is held through breakdowns and short silences instead of dropping straight to Spotify timing
 - [x] Once locked, weaker estimates that agree on the tempo keep the beat, so quieter sections of a song don't lose it
 - [x] Tempo changes logged, with the tracker's confidence
+- [x] Pulses peak on the beat instead of a fifth of a beat after it, and captured audio is timed by its sample count, so the lights no longer trail the music
 
 - [x] Pulse to the track's real tempo, with a configurable fallback and beats-per-pulse
 - [x] Monochromatic, triadic and tetradic palettes
