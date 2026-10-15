@@ -33,6 +33,8 @@ What's still to do, roughly in priority order. Tick items off as they land.
 - [x] Live beat detection from audio (BlackHole), with Spotify timing as the fallback
 - [x] Lights react to the music: brightness follows the energy, big hits flash, the treble turns the palette and hi-hats sparkle
 - [x] The live beat is held through breakdowns and short silences instead of dropping straight to Spotify timing
+- [x] Once locked, weaker estimates that agree on the tempo keep the beat, so quieter sections of a song don't lose it
+- [x] Tempo changes logged, with the tracker's confidence
 
 - [x] Pulse to the track's real tempo, with a configurable fallback and beats-per-pulse
 - [x] Monochromatic, triadic and tetradic palettes

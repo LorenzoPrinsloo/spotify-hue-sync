@@ -1,6 +1,6 @@
 import cats.effect.*
 import cats.syntax.all.*
-import beat.AudioReading
+import beat.{AudioReading, BeatState}
 import client.SpotifyClient
 import fs2.Stream
 import domain.config.{AppConfig, PulseSettings}
@@ -53,25 +53,19 @@ class SyncEngine[F[_]: Async] private (
     }
 
   /**
-   * Keeps `audioRef` up to date with what the music is doing, logging when the beat locks on or is lost. On failure
-   * it clears the reading, so the show carries on with Spotify timing and no audio effects.
+   * Keeps `audioRef` up to date with what the music is doing, logging when the beat locks on, is lost or changes
+   * tempo. On failure it clears the reading, so the show carries on with Spotify timing and no audio effects.
    */
   private def followAudio(audioRef: Ref[F, Option[AudioReading]]): Stream[F, Nothing] =
     audio
-      .evalTap { reading =>
-        audioRef.get.map(_.flatMap(_.beat)).flatMap { previous =>
-          (previous, reading.beat) match {
-            case (None, Some(b)) => logger.info(f"Locked onto the beat at ${b.bpm}%.1f BPM")
-            case (Some(_), None) => logger.info("Lost the beat; using Spotify timing until it's back")
-            case _               => Async[F].unit
-          }
-        }
-      }
-      .evalMap(reading => audioRef.set(Some(reading)))
-      .handleErrorWith { err =>
-        Stream.eval(audioRef.set(None) *> logger.warn(s"Listening stopped, using Spotify timing instead: ${err.getMessage}"))
+      .evalMapAccumulate(Option.empty[Double]) { (logged, reading) =>
+        val (remembered, news) = SyncEngine.beatNews(logged, reading.beat)
+        (news.traverse_(logger.info(_)) *> audioRef.set(Some(reading))).as((remembered, ()))
       }
       .drain
+      .handleErrorWith { err =>
+        Stream.exec(audioRef.set(None) *> logger.warn(s"Listening stopped, using Spotify timing instead: ${err.getMessage}"))
+      }
 
   def run: Stream[F, Frame] =
     Stream.eval((SignallingRef[F, Option[LocalPlayback]](None), Ref.of[F, Option[AudioReading]](None)).tupled).flatMap { (stateRef, audioRef) =>
@@ -132,6 +126,22 @@ object SyncEngine:
     audio: Stream[F, AudioReading] = Stream.empty
   ): F[SyncEngine[F]] =
     Ref.of[F, Map[TrackId, TrackShow]](Map.empty).map(new SyncEngine[F](config, zone, spotify, _, random, audio))
+
+  /** How far the tempo has to move from the last one logged before it's logged again. */
+  val TempoChangeToLog: Double = 0.03
+
+  /**
+   * What to log about the beat, given the tempo logged last and the latest beat: that it locked on, that it was lost,
+   * or that the tempo moved by more than `TempoChangeToLog`. Returns the tempo to remember and the message, if any.
+   */
+  def beatNews(logged: Option[Double], beat: Option[BeatState]): (Option[Double], Option[String]) =
+    (logged, beat) match {
+      case (None, Some(b)) => (Some(b.bpm), Some(f"Locked onto the beat at ${b.bpm}%.1f BPM (confidence ${b.confidence}%.1f)"))
+      case (Some(_), None) => (None, Some("Lost the beat; using Spotify timing until it's back"))
+      case (Some(was), Some(b)) if math.abs(b.bpm - was) / was > TempoChangeToLog =>
+        (Some(b.bpm), Some(f"Tempo changed from $was%.1f to ${b.bpm}%.1f BPM (confidence ${b.confidence}%.1f)"))
+      case _ => (logged, None)
+    }
 
   /** Pulses elapsed at a playback position, pulsing at `bpm`. */
   def pulsesAt(positionMs: Long, bpm: Double): Double = positionMs * bpm / 60000.0
