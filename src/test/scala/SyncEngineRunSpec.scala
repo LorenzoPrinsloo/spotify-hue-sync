@@ -263,7 +263,9 @@ class SyncEngineRunSpec extends CatsEffectSuite {
         kept <- e.showFor(track)
         _ <- live.update(brighter.copy(palette = PaletteType.Tetradic)) *> e.applyNow
         changed <- e.showFor(track)
+        playing <- e.palette
       } yield {
+        assertEquals(playing, Some(changed.palette))
         assertEquals(kept.settings, brighter)
         assertEquals(kept.palette, before.palette)
         assertEquals(changed.palette.colors.size, 4)

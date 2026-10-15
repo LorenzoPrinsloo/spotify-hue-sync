@@ -65,7 +65,7 @@ flowchart LR
 | `audio` | `AudioInput`: captures audio from an input device such as BlackHole |
 | `beat` | Live beat detection: `Fft`, `OnsetDetector`, `BeatTracker`, `BeatState`, `Groove` (the bar's kick pattern), `AudioReading` and the `BeatTracking` stream |
 | `domain.config` | `AppConfig`, `HueConfig`, `UiConfig` and `LightShowConfig` (with `PulseSettings`, `PauseSettings`, `AudioSettings`, `ReactiveSettings` and `SwellSettings`, in `model`), loaded with pureconfig from `application.conf` on top of the defaults in `reference.conf` by `LightShowConfigReaders`; `SettingsView`, `SettingsProblems` and `ConfigSnippet` for the settings page |
-| `settings` | `LiveSettings` (the settings for this session, taken up as each song starts), `SettingsRoutes` (the page and its API) and `SettingsServer` |
+| `settings` | `LiveSettings` (the settings for this session, taken up as each song starts), `SettingsRoutes` (the page and its API), `ShowControls` (what the page asks of the running show: apply now, the areas, the song's palette) and `SettingsServer` |
 | `ui` | The settings page: `SettingsPage`, `Sections` (every setting on it), `Api` |
 | `domain.engine` | The colour engine and animation: `RGB`, `Palette`, `PaletteType`, `Order`, `Pulse` (the envelopes), `Effects` (the reactions to the music), `LightRole` (each light's job), `Renderer` (the pause fade) and `LocalPlayback` |
 | `domain.hue` | The Hue streaming protocol: `Zone`, `Frame`, `LightUpdate` and their binary codecs; `MusicArea` (in `model`), an entertainment area and how the one to play on is chosen |

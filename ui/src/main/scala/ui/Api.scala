@@ -3,6 +3,7 @@ package ui
 import com.raquo.laminar.api.L.*
 import com.raquo.airstream.web.FetchStream
 import domain.config.{LightShowConfig, SettingsProblems, SettingsView}
+import domain.engine.RGB
 import domain.hue.MusicArea
 import io.circe.Decoder
 import io.circe.parser.decode
@@ -18,6 +19,14 @@ object Api {
   )
 
   def settings: EventStream[Either[List[String], SettingsView]] = answer(fetch.get("/api/settings"))
+
+  /** The palette of the song playing now, in the order the lights take it; empty before the first song. */
+  def palette: EventStream[Either[List[String], List[RGB]]] =
+    fetch.get("/api/palette").recoverToEither.map {
+      case Right((status, body)) if status < 300 => read[List[RGB]](body)
+      case Right((status, _))                    => Left(List(s"Couldn't read the song's palette (status $status)"))
+      case Left(failure)                         => Left(List(s"Couldn't reach the app: ${failure.getMessage}"))
+    }
 
   /** The bridge's entertainment areas, music areas first. */
   def areas: EventStream[Either[List[String], List[MusicArea]]] =

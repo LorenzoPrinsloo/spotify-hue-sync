@@ -73,6 +73,9 @@ class SyncEngine[F[_]: Async] private (
         } yield created
     }
 
+  /** The palette of the song playing now, if one has started. */
+  def palette: F[Option[Palette]] = current.get.map(_.map(_._2.palette))
+
   /**
    * Takes up the latest settings now rather than at the next song, moving to another area if they name one. The palette
    * only changes if its type did.

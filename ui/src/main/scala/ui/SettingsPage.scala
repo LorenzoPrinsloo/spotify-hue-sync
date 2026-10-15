@@ -15,6 +15,7 @@ final class SettingsPage {
   private val draft = Var(Option.empty[LightShowConfig])
   private val serverProblems = Var(List.empty[String])
   private val areas = Var(List.empty[MusicArea])
+  private val songPalette = Var(List.empty[RGB])
 
   private def edit(change: LightShowConfig => LightShowConfig): Unit = draft.update(_.map(change))
 
@@ -47,6 +48,7 @@ final class SettingsPage {
         case Left(failed) => serverProblems.set(failed)
       },
       EventStream.periodic(2000).drop(1).flatMapSwitch(_ => Api.settings) --> (answer => received(answer)),
+      EventStream.periodic(2000).flatMapSwitch(_ => Api.palette) --> (answer => answer.foreach(songPalette.set)),
       draft.signal.changes.debounce(300).collect { case Some(edited) if LightShowConfig.problems(edited).isEmpty => edited }
         .flatMapSwitch(Api.save) --> (answer => received(answer)),
       headerTag(
@@ -100,6 +102,7 @@ final class SettingsPage {
     case Control.Roles         => roles
     case Control.Reactions     => reactionsSwitch
     case Control.Palette       => paletteChoice
+    case Control.SongPalette   => songColours
     case Control.RestingColour => restingColour
     case Control.FixedSettings => fixedSettings
   }
@@ -180,6 +183,20 @@ final class SettingsPage {
         PaletteType.names.keys.toList.sorted.map(name => option(value := name, name))
       ),
       p(cls := "help", "Each new song gets a new palette of this kind.")
+    )
+
+  private def songColours: HtmlElement =
+    div(
+      cls := "field",
+      label(span("This song's palette")),
+      div(
+        cls := "swatches",
+        children <-- songPalette.signal.map {
+          case Nil     => List(span(cls := "help", "Shown once a song starts."))
+          case colours => colours.map(c => span(cls := "swatch", backgroundColor := c.hex, title := c.hex))
+        }
+      ),
+      p(cls := "help", "Light 1 takes the first colour, light 2 the second, and so on, starting again after the last.")
     )
 
   private def restingColour: HtmlElement =

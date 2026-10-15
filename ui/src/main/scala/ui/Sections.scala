@@ -129,7 +129,7 @@ object Sections {
   val palette: Section = Section(
     "Palette and pause",
     "The colours each new song gets, and what the lights do while nothing plays.",
-    List(Control.Palette, Control.RestingColour),
+    List(Control.Palette, Control.SongPalette, Control.RestingColour),
     List(
       Slider("pause.fade-out-ms", "Fade to rest (ms)", "How long the lights take to fade to the resting colour when the music stops.",
         0, 10000, 100, _.pause.fadeOutMs.toDouble, (c, v) => c.copy(pause = c.pause.copy(fadeOutMs = millis(v))))

@@ -2,6 +2,7 @@ package settings
 
 import cats.effect.{IO, Ref}
 import domain.config.{BeatSource, LightShowConfig, PulseSettings, SettingsProblems, SettingsView}
+import domain.engine.RGB
 import domain.hue.MusicArea
 import io.circe.syntax.*
 import munit.CatsEffectSuite
@@ -13,6 +14,7 @@ class SettingsRoutesSpec extends CatsEffectSuite {
 
   private val fromFile = LightShowConfig(beatSource = BeatSource.Audio)
   private val sharper = fromFile.copy(pulse = PulseSettings().copy(attack = 0.05))
+  private val songPalette = Vector(RGB.fromHex("#ff8800"), RGB.fromHex("#0088ff")).flatten
   private val areas = List(MusicArea("a-1", "Upstairs", "music", List("Hall", "Bedroom"), 4), MusicArea("a-2", "Downstairs", "music", List("Kitchen"), 3))
 
   /** The routes, the settings behind them, and how many times they've asked to apply the settings now. */
@@ -22,7 +24,12 @@ class SettingsRoutesSpec extends CatsEffectSuite {
     for {
       live <- LiveSettings.make[IO](fromFile)
       applied <- Ref.of[IO, Int](0)
-    } yield Fixture(SettingsRoutes[IO](live, applied.update(_ + 1), IO.pure(areas)).orNotFound, live, applied)
+      show = new ShowControls[IO] {
+        def applyNow: IO[Unit] = applied.update(_ + 1)
+        def areas: IO[List[MusicArea]] = IO.pure(SettingsRoutesSpec.this.areas)
+        def palette: IO[Vector[RGB]] = IO.pure(songPalette)
+      }
+    } yield Fixture(SettingsRoutes[IO](live, show).orNotFound, live, applied)
 
   test("the settings are read as JSON") {
     routes.flatMap(_.app.run(Request(Method.GET, uri"/api/settings")).flatMap(_.as[SettingsView]))
@@ -78,6 +85,11 @@ class SettingsRoutesSpec extends CatsEffectSuite {
       assertEquals((known.status, unknown.status), (Status.Ok, Status.BadRequest))
       assertEquals(reason, SettingsProblems(List("area must be one of \"Upstairs\", \"Downstairs\"")))
     }
+  }
+
+  test("the palette of the song playing now is read as colours") {
+    routes.flatMap(_.app.run(Request(Method.GET, uri"/api/palette")).flatMap(_.as[List[String]]))
+      .assertEquals(List("#ff8800", "#0088ff"))
   }
 
   test("the page and its script are served") {

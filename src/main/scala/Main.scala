@@ -6,7 +6,8 @@ import cats.syntax.all.*
 import beat.BeatTracking
 import domain.config.{AppConfig, BeatSource}
 import domain.hue.{MusicArea, Zone}
-import settings.{LiveSettings, SettingsRoutes, SettingsServer}
+import domain.engine.RGB
+import settings.{LiveSettings, SettingsRoutes, SettingsServer, ShowControls}
 import fs2.io.net.tls.TLSContext
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 import org.http4s.ember.client.EmberClientBuilder
@@ -14,6 +15,13 @@ import org.http4s.client.middleware.FollowRedirect
 object Main extends IOApp {
   private val logger = Slf4jLogger.getLogger[IO]
   
+  private def controls(engine: SyncEngine[IO], lights: Lights[IO]): ShowControls[IO] =
+    new ShowControls[IO] {
+      def applyNow: IO[Unit] = engine.applyNow
+      def areas: IO[List[MusicArea]] = lights.areas
+      def palette: IO[Vector[RGB]] = engine.palette.map(_.fold(Vector.empty)(_.colors))
+    }
+
   override def run(args: List[String]): IO[ExitCode] = {
     val resources = for {
       config <- Resource.eval(AppConfig.load[IO])
@@ -39,7 +47,7 @@ object Main extends IOApp {
       _ <-
         if (!config.ui.enabled) Resource.unit[IO]
         else
-          SettingsServer.resource[IO](config.ui, SettingsRoutes[IO](live, engine.applyNow, lights.areas))
+          SettingsServer.resource[IO](config.ui, SettingsRoutes[IO](live, controls(engine, lights)))
             .evalMap(server => logger.info(s"Settings page at ${server.baseUri}; changes take effect when the next song starts"))
     } yield (hueClient, emitter, engine)
 
