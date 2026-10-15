@@ -87,9 +87,14 @@ classDiagram
         hue: HueConfig
         pollingIntervalMs: Int
         lightShow: LightShowConfig
+        ui: UiConfig
     }
     class LightShowConfig {
+        area: Option~String~
         palette: PaletteType
+        beatSource: BeatSource
+        audio: AudioSettings
+        reactive: ReactiveSettings
         defaultBpm: Double
         beatsPerPulse: Double
         syncOffsetMs: Long
@@ -111,15 +116,36 @@ classDiagram
     }
 
     class SyncEngine~F~ {
-        -tracks: Ref~Map~
+        -current: Ref~Option~
         +run: Stream~Frame~
         +showFor(trackId) F~TrackShow~
-        +make(config, spotify, zone, random, audio)$ F~SyncEngine~
+        +applyNow: F~Unit~
+        +palette: F~Option~
+        +make(config, live, spotify, zone, lights, random, audio)$ F~SyncEngine~
         +pulseFrame(zone, palette, pulses, settings, effects)$ Frame
     }
     class TrackShow {
-        bpm: Double
+        tempo: Option~Double~
         palette: Palette
+        settings: LightShowConfig
+        zone: Zone
+        +bpm: Double
+    }
+    class LiveSettings~F~ {
+        fromFile: LightShowConfig
+        +view: F~SettingsView~
+        +update(next) F~Either~
+        +reset: F~SettingsView~
+        +startSong: F~LightShowConfig~
+    }
+    class Lights~F~ {
+        <<trait>>
+        +areas: F~List~MusicArea~~
+        +zone(area) F~Option~Zone~~
+    }
+    class EntertainmentStream {
+        +apply(session, send)(frames)$ Stream~Nothing~
+        +toBridge(hue, emitter)(frames)$ Stream~Nothing~
     }
 
     class SpotifyClient~F~ {
@@ -127,6 +153,7 @@ classDiagram
         +getTempo(id) F~Option~
     }
     class HueClient~F~ {
+        +areas: F~List~MusicArea~~
         +getChannels(zoneId) F~List~
         +setStreaming(zoneId, active) F~Unit~
     }
@@ -202,6 +229,14 @@ classDiagram
     Main --> SyncEngine
     Main --> HueClient
     Main --> DtlsEmitter
+    Main --> EntertainmentStream
+    Main --> LiveSettings
+    SyncEngine --> LiveSettings
+    SyncEngine --> Lights
+    TrackShow *-- LightShowConfig
+    TrackShow *-- Zone
+    EntertainmentStream --> HueClient
+    EntertainmentStream --> DtlsEmitter
     AppConfig *-- LightShowConfig
     LightShowConfig *-- PulseSettings
     LightShowConfig *-- PauseSettings
@@ -236,25 +271,35 @@ sequenceDiagram
 
     M->>C: load application.conf (env variables)
     M->>S: build HTTP client and start callback server on :7070
-    M->>H: getChannels(zone)
+    M->>H: list the entertainment areas
+    H-->>M: areas
+    M->>M: choose the area (light-show.area, hue.zone-id or the only music area)
+    M->>H: getChannels(area)
     H-->>M: channel ids
-    M->>E: SyncEngine.make (zone, track cache)
-    M->>H: setStreaming(zone, active = true)
-    M->>D: open DTLS connection to bridge:2100
+    M->>E: SyncEngine.make (live settings, area's zone)
+    M->>M: start the settings page on :7071
     loop until stopped
-        E->>D: Frame
+        E->>M: Frame (for an area)
+        alt first frame for this area
+            M->>D: close the previous area's DTLS connection, if any
+            M->>H: setStreaming(previous area, active = false)
+            M->>H: setStreaming(area, active = true)
+            M->>D: open a new DTLS connection to bridge:2100
+        end
         D->>D: encode and send packet
     end
-    M->>H: setStreaming(zone, active = false)
-    M->>D: stop DTLS connector
+    M->>D: close the DTLS connection
+    M->>H: setStreaming(area, active = false)
 ```
 
 ## Effects and concurrency
 
 - Everything runs in `IO` through tagless-final `F[_]` constraints (`Async`, `Network`).
 - Shared state lives in Cats Effect primitives:
-  - `Ref` for the Spotify session (access and refresh tokens), the per-track tempo and palette cache, and the track-analysis cache
+  - `Ref` for the Spotify session (access and refresh tokens), the current song's show, the pending and applied settings (`LiveSettings`), each area's channels once read (`Lights`), and the track-analysis cache
   - `Deferred` to hand the OAuth code from the callback server to the client
   - `SignallingRef` for the latest playback state shared by the poller and the renderer
 - The poller and the renderer are two fs2 streams merged into one, so stopping the app cancels both.
+- `Hotswap` holds the entertainment session on the current area, so moving to another area closes the old session before opening the new one, and stopping the app closes the last.
+- The settings page's server is a `Resource` like the rest, so it stops with the app.
 - The renderer threads its pause state through `evalMapAccumulate`, and reads time from `Clock`, so the whole engine runs on Cats Effect's simulated clock in tests (`TestControl`).

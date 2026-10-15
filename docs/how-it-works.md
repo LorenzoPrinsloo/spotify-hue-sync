@@ -40,12 +40,12 @@ flowchart TB
     subgraph Renderer[Renderer: every frame-interval-ms]
         R1[read latest playback] --> R2{playing?}
         R2 -- no --> R3[fade towards the resting colour]
-        R2 -- yes --> R4[tempo and palette for this track]
+        R2 -- yes --> R4[the song's show: tempo, palette,<br/>settings and area, fixed as it starts]
         R4 --> R5[estimate song position]
         R5 --> R6[pulseFrame]
         R3 --> R7[number the frame]
         R6 --> R7
-        R7 --> R8[DtlsEmitter.send]
+        R7 --> R8[EntertainmentStream:<br/>send to the frame's area]
     end
 
     P3 --> R1
@@ -57,6 +57,7 @@ flowchart TB
   `position = progress_ms + (now - time the poll arrived) + sync-offset-ms`
 
   `sync-offset-ms` (−150 ms by default) nudges the lights to line up with the audio.
+- **The song's show.** When a new track starts, the renderer takes up the latest settings (see [The settings page](#8-the-settings-page)), the lights of the area they name, a new palette and the track's tempo, and keeps them until the track changes. Frames are drawn from that show, so nothing else is read while they're drawn.
 - The renderer always sends a frame, playing or not, and numbers each one (see [Streaming to Hue](#6-streaming-to-hue)).
 
 ## 3. The colour engine
@@ -117,7 +118,7 @@ A palette is generated the first time a track is seen and cached in a `Ref` for 
 
 ### Assigning colours to lights
 
-At startup the app asks the bridge which channels the entertainment zone has (`GET /clip/v2/resource/entertainment_configuration/{zone}`), so it drives exactly the lights in your zone, sorted by channel ID.
+The first time the show plays on an entertainment area, the app asks the bridge which channels the area has (`GET /clip/v2/resource/entertainment_configuration/{area}`), so it drives exactly the lights in that area, sorted by channel ID.
 
 `getColor(index)` is a 0-based circular index: the first light gets the first colour, and the palette repeats after the last one. With a three-colour palette `[c1, c2, c3]` and seven lights:
 
@@ -260,9 +261,11 @@ The fade is a small state machine (`Renderer`): it remembers the last frame that
 
 Hue's Entertainment API takes a stream of UDP packets secured with DTLS, instead of one REST call per light change.
 
-1. `HueClient.getChannels` reads the zone's channel IDs from the bridge.
-2. `HueClient.setStreaming` calls the bridge's CLIP v2 API (`PUT /clip/v2/resource/entertainment_configuration/{zone}`) with `{"action": "start"}`. This opens the streaming port.
-3. `DtlsEmitter` opens a DTLS connection to the bridge on port 2100 using Californium Scandium. It authenticates with a pre-shared key: the identity is `HUE_USERNAME` and the key is `HUE_PSK`.
+`EntertainmentStream` opens a session on an area when the first frame for that area arrives:
+
+1. `HueClient.getChannels` has read the area's channel IDs from the bridge (see [Assigning colours to lights](#assigning-colours-to-lights)).
+2. `HueClient.setStreaming` calls the bridge's CLIP v2 API (`PUT /clip/v2/resource/entertainment_configuration/{area}`) with `{"action": "start"}`. This opens the streaming port.
+3. `DtlsEmitter` opens a new DTLS connection to the bridge on port 2100 using Californium Scandium. It authenticates with a pre-shared key: the identity is `HUE_USERNAME` and the key is `HUE_PSK`.
 4. Each frame is encoded with scodec into this layout:
 
 | Bytes | Field | Value |
@@ -278,7 +281,7 @@ Hue's Entertainment API takes a stream of UDP packets secured with DTLS, instead
 
 A frame is 52 bytes plus 7 per channel, so 101 bytes for seven lights. The colour engine works in 8-bit colour, so each value is shifted left by 8 bits to fill the 16-bit fields.
 
-5. When the app stops, the stream's finalizer calls `setStreaming(active = false)` and the DTLS connector is closed.
+5. When the show moves to another area, or the app stops, the session closes: the DTLS connector is closed, then `setStreaming(active = false)` hands the area's lights back, so they return to how they were. The session is held in a Cats Effect `Hotswap`, which closes it even if the app stops with an error.
 
 ### Choosing the area
 

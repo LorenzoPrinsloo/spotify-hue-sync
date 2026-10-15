@@ -26,7 +26,7 @@ What's still to do, roughly in priority order. Tick items off as they land.
 ## Code health
 
 - [ ] **Remove or use the leftover code:** `SyncFrame`, `Fader`, `GroupId` and `LightId` aren't used anywhere, and neither is `getTrackAnalysis` now that the tempo comes from audio features.
-- [ ] **Test the rest of the clients.** `getTempo`, `getPlaybackState`, token renewal and `getChannels` are tested against fake servers; `setStreaming` and the sign-in flow aren't yet.
+- [ ] **Test the rest of the clients.** `getTempo`, `getPlaybackState`, token renewal, `getChannels` and the list of entertainment areas are tested against fake servers; `setStreaming` and the sign-in flow aren't yet.
 - [ ] **Package the app,** for example as a Docker image, so it can run on a home server or Raspberry Pi.
 
 ## Done
