@@ -12,10 +12,10 @@ import fs2.io.net.Network
 private class CachedSpotifyClient[F[_]: Async: Network](
   client: Client[F],
   creds: SpotifyCredentials,
-  tokenRef: Ref[F, Option[String]],
+  session: Ref[F, Option[SpotifySession]],
   cache: Ref[F, Map[TrackId, Vector[SpotifySegment]]],
   authCodeDeferred: Deferred[F, String]
-) extends SpotifyClient[F](client, creds, tokenRef, authCodeDeferred) {
+) extends SpotifyClient[F](client, creds, session, authCodeDeferred) {
 
   private val logger = Slf4jLogger.getLogger[F]
 
@@ -37,13 +37,13 @@ private class CachedSpotifyClient[F[_]: Async: Network](
 object CachedSpotifyClient {
   def resource[F[_]: Async: Network](client: Client[F], creds: SpotifyCredentials): Resource[F, SpotifyClient[F]] = {
     for {
-      tokenRef         <- Resource.eval(Ref.of[F, Option[String]](None))
+      session          <- Resource.eval(Ref.of[F, Option[SpotifySession]](None))
       authCodeDeferred <- Resource.eval(Deferred[F, String])
       segmentCache     <- Resource.eval(Ref.of[F, Map[TrackId, Vector[SpotifySegment]]](Map.empty))
 
       // We still need to start the Ember server here if you want it in the cache resource
       _ <- SpotifyClient.serverResource[F](authCodeDeferred)
 
-    } yield new CachedSpotifyClient(client, creds, tokenRef, segmentCache, authCodeDeferred)
+    } yield new CachedSpotifyClient(client, creds, session, segmentCache, authCodeDeferred)
   }
 }

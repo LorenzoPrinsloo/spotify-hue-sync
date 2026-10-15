@@ -17,13 +17,14 @@ sequenceDiagram
     Acc-->>CB: redirect to /callback?code=...
     CB->>App: complete Deferred with the code
     App->>Acc: POST /api/token (code + client credentials)
-    Acc-->>App: access token
-    App->>App: store token in Ref
+    Acc-->>App: access and refresh tokens
+    App->>App: store both in a Ref
 ```
 
 - The first call to Spotify triggers the sign-in. The app logs the authorize URL; opening it in a browser completes the flow.
 - If `SPOTIFY_SP_DC` is set, the app also requests the authorize URL with that session cookie, which can complete the consent step without a browser.
 - The callback server listens only on `127.0.0.1:7070`, so it is not reachable from other machines.
+- Access tokens expire after about an hour. When Spotify rejects one, the app swaps the refresh token for a new access token (`POST /api/token` with `grant_type=refresh_token`) and sends the request again. If that fails, the poll fails with an error in the log rather than being read as "nothing playing".
 
 ## 2. Two loops: polling and rendering
 
@@ -302,7 +303,6 @@ The config is validated when the app starts: an unknown palette name, an invalid
 
 The [roadmap](roadmap.md) tracks fixes for these.
 
-- **No token refresh.** The access token is never refreshed, and the configured refresh token isn't used yet. When the token expires (Spotify tokens last about an hour), polls come back unauthorised and are treated as "nothing playing", so the lights fade to rest until the app is restarted.
 - **Spotify timing isn't aligned to the beat.** Without live beat detection, pulses are counted from the start of the track at Spotify's tempo (or the default), so they can be offset from the actual beats. Use `beat-source = "audio"` for real beat sync.
 - **The beat tracker can count double or half time** on very slow or very fast music, which is a common ambiguity. `audio.min-bpm` and `audio.max-bpm` narrow the range.
 - **The beat tracker can settle on a related but wrong tempo,** such as 4/3 of the real one, on songs whose rhythm supports both. On one of six songs recorded through BlackHole it did this for about a third of the time it was locked.

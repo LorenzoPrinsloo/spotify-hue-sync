@@ -4,7 +4,6 @@ What's still to do, roughly in priority order. Tick items off as they land.
 
 ## Fixes
 
-- [ ] **Refresh the Spotify access token.** The token is never renewed, and `SPOTIFY_REFRESH_TOKEN` is loaded but never used. After about an hour Spotify starts rejecting polls, the app treats that as "nothing playing", and the lights fade to rest until a restart. Use the refresh token (and `SpotifyToken.isExpired`, which exists but isn't called) to get a new access token before it expires, or when a poll comes back `401`.
 - [ ] **Keep certificate checks on for Spotify.** The HTTP client skips certificate verification so it can reach the Hue bridge, which has a self-signed certificate. Spotify calls share that client, so they skip verification too. Give the bridge its own client.
 - [ ] **Fix the Hue error message.** When a Hue request fails, `HueClient` logs "Spotify Exchange Failed" and the request body instead of the response.
 - [ ] **Fail fast on a bad Hue key.** If `HUE_PSK` isn't valid hex, `DtlsEmitter` silently falls back to an empty key, so the connection fails later with a confusing error. Validate it when the config loads.
@@ -25,7 +24,7 @@ What's still to do, roughly in priority order. Tick items off as they land.
 ## Code health
 
 - [ ] **Remove or use the leftover code:** `SyncFrame`, `Fader`, `GroupId` and `LightId` aren't used anywhere, and neither is `getTrackAnalysis` now that the tempo comes from audio features.
-- [ ] **Test the rest of the clients.** `getTempo` and `getChannels` are tested against fake servers; `getPlaybackState`, `setStreaming` and the sign-in flow aren't yet.
+- [ ] **Test the rest of the clients.** `getTempo`, `getPlaybackState`, token renewal and `getChannels` are tested against fake servers; `setStreaming` and the sign-in flow aren't yet.
 - [ ] **Add CI:** a GitHub Actions workflow that runs `sbt test` on every push.
 - [ ] **Package the app,** for example as a Docker image, so it can run on a home server or Raspberry Pi.
 
@@ -36,6 +35,7 @@ What's still to do, roughly in priority order. Tick items off as they land.
 - [x] The live beat is held through breakdowns and short silences instead of dropping straight to Spotify timing
 - [x] Once locked, weaker estimates that agree on the tempo keep the beat, so quieter sections of a song don't lose it
 - [x] Tempo changes logged, with the tracker's confidence
+- [x] The Spotify access token is renewed when it expires, so the lights keep going past the first hour
 - [x] Beats land on the kick rather than on off-beat hi-hats, and the tracker no longer flips between the beat and the off-beat
 - [x] Locks on once the tempo has held steady for a few seconds, so songs with a softer beat don't fall back to Spotify timing
 - [x] Pulses peak on the beat instead of a fifth of a beat after it, and captured audio is timed by its sample count, so the lights no longer trail the music

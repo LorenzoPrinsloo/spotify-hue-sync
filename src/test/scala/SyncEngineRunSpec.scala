@@ -6,7 +6,7 @@ import client.SpotifyClient
 import domain.config.*
 import domain.engine.{Palette, PaletteType, RGB}
 import domain.hue.{Frame, HueCredentials, Zone}
-import domain.spotify.SpotifyCredentials
+import domain.spotify.{SpotifyCredentials, SpotifySession}
 import domain.spotify.types.TrackId
 import munit.CatsEffectSuite
 import org.http4s.*
@@ -43,7 +43,7 @@ class SyncEngineRunSpec extends CatsEffectSuite {
 
   private def engine(setup: Setup, tempoCalls: Ref[IO, Int]): IO[SyncEngine[IO]] =
     for {
-      token <- Ref.of[IO, Option[String]](Some("token"))
+      session <- Ref.of[IO, Option[SpotifySession]](Some(SpotifySession("token", "refresh")))
       code <- Deferred[IO, String]
       app = HttpRoutes.of[IO] {
         case GET -> Root / "v1" / "me" / "player" =>
@@ -51,7 +51,7 @@ class SyncEngineRunSpec extends CatsEffectSuite {
         case GET -> Root / "v1" / "audio-features" / _ =>
           tempoCalls.update(_ + 1) *> setup.tempo
       }.orNotFound
-      spotify = new SpotifyClient[IO](Client.fromHttpApp(app), SpotifyCredentials("id", "secret", "refresh"), token, code)
+      spotify = new SpotifyClient[IO](Client.fromHttpApp(app), SpotifyCredentials("id", "secret", "refresh"), session, code)
       built <- SyncEngine.make[IO](config(setup.show), spotify, zone, new Random(setup.seed), setup.audio)
     } yield built
 

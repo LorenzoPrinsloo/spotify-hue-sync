@@ -31,7 +31,7 @@ import scala.util.Random
 class SpotifyClient[F[_]: Async: Network](
   client: Client[F],
   creds: SpotifyCredentials,
-  tokenRef: Ref[F, Option[String]],
+  session: Ref[F, Option[SpotifySession]],
   authCodeDeferred: Deferred[F, String]
 ) extends Http4sClientDsl[F]:
 
@@ -70,42 +70,70 @@ class SpotifyClient[F[_]: Async: Network](
             Async[F].raiseError(new RuntimeException(s"Spotify Error ${errorRes.status}: $body"))
         }
       }
-      _ <- tokenRef.set(Some(resp.access_token))
-    yield resp.refresh_token.getOrElse("")
+      _ <- session.set(Some(SpotifySession(resp.access_token, resp.refresh_token.getOrElse(creds.refreshToken))))
+    yield resp.access_token
 
 
   /**
    * Helper to always get a valid token.
    */
   def getOrRefresh: F[String] =
-    tokenRef.get.flatMap:
-      case Some(t) => Async[F].pure(t)
+    session.get.flatMap:
+      case Some(s) => Async[F].pure(s.accessToken)
       case None    => initialAuth
+
+  /**
+   * Swaps the refresh token for a new access token, keeping the refresh token Spotify sends back, if any.
+   * Spotify's access tokens expire after an hour.
+   */
+  def renew: F[String] =
+    for
+      refresh <- session.get.map(_.fold(creds.refreshToken)(_.refreshToken))
+      req = Request[F](Method.POST, authUri)
+        .withEntity(UrlForm("grant_type" -> "refresh_token", "refresh_token" -> refresh))
+        .putHeaders(Authorization(BasicCredentials(creds.clientId, creds.clientSecret)))
+      resp <- client.expectOr[SpotifyToken](req) { errorRes =>
+        errorRes.bodyText.compile.string.flatMap { body =>
+          Async[F].raiseError(new RuntimeException(s"Couldn't renew the Spotify access token, ${errorRes.status}: $body"))
+        }
+      }
+      _ <- session.set(Some(SpotifySession(resp.access_token, resp.refresh_token.getOrElse(refresh))))
+      _ <- logger.info("Renewed the Spotify access token")
+    yield resp.access_token
+
+  /**
+   * Sends `request` with the access token. If Spotify rejects the token, renews it and sends the request once more,
+   * so `read` only sees a 401 if the renewed token is rejected too.
+   */
+  private def authorised[A](request: Request[F])(read: Response[F] => F[A]): F[A] =
+    def send(token: String): Resource[F, Response[F]] =
+      client.run(request.putHeaders(Authorization(Credentials.Token(AuthScheme.Bearer, token))))
+
+    getOrRefresh
+      .flatMap(token => send(token).use(resp => if resp.status == Status.Unauthorized then Async[F].pure(None) else read(resp).map(Some(_))))
+      .flatMap {
+        case Some(result) => Async[F].pure(result)
+        case None         => renew.flatMap(send(_).use(read))
+      }
 
   /**
    * Port of fetch-spotify-playback-state.ts
    */
   def getPlaybackState: F[Option[PlaybackState]] =
-    for
-      token <- getOrRefresh
-      req    = GET(apiUri / "me" / "player").withHeaders(Authorization(Credentials.Token(AuthScheme.Bearer, token)))
-      res   <- client.run(req).use: resp =>
-        if resp.status == Status.NoContent || resp.status == Status.Unauthorized then Async[F].pure(None)
-        else resp.as[PlaybackState].map(Some(_))
-    yield res
+    authorised(GET(apiUri / "me" / "player")) { resp =>
+      if resp.status == Status.NoContent then Async[F].pure(None)
+      else resp.as[PlaybackState].map(Some(_))
+    }
 
   /**
    * The track's tempo in BPM from Spotify's audio features, or None if Spotify won't provide it
    * (the endpoint is restricted for newer Spotify apps).
    */
   def getTempo(id: TrackId): F[Option[Double]] =
-    for
-      token <- getOrRefresh
-      req    = GET(apiUri / "audio-features" / id.value).withHeaders(Authorization(Credentials.Token(AuthScheme.Bearer, token)))
-      tempo <- client.run(req).use: resp =>
-        if resp.status.isSuccess then resp.as[Json].map(_.hcursor.downField("tempo").as[Double].toOption.filter(_ > 0))
-        else Async[F].pure(None)
-    yield tempo
+    authorised(GET(apiUri / "audio-features" / id.value)) { resp =>
+      if resp.status.isSuccess then resp.as[Json].map(_.hcursor.downField("tempo").as[Double].toOption.filter(_ > 0))
+      else Async[F].pure(None)
+    }
 
   /**
    * Port of fetch-spotify-track-segments.ts
@@ -141,9 +169,9 @@ object SpotifyClient:
 
   def resource[F[_] : Async: Network](client: Client[F], creds: SpotifyCredentials): Resource[F, SpotifyClient[F]] =
     for
-      tokenRef <- Resource.eval(Ref.of[F, Option[String]](None))
+      session <- Resource.eval(Ref.of[F, Option[SpotifySession]](None))
       authCodeDeferred <- Resource.eval(Deferred[F, String])
       _ <- serverResource(authCodeDeferred)
-    yield new SpotifyClient[F](client, creds, tokenRef, authCodeDeferred)
+    yield new SpotifyClient[F](client, creds, session, authCodeDeferred)
 
   object CodeMatcher extends QueryParamDecoderMatcher[String]("code")

@@ -52,7 +52,7 @@ flowchart LR
 | `domain.config` | `AppConfig`, `HueConfig` and `LightShowConfig` (with `PulseSettings`, `PauseSettings`, `AudioSettings` and `ReactiveSettings`), loaded with pureconfig from `application.conf` on top of the defaults in `reference.conf` |
 | `domain.engine` | The colour engine and animation: `RGB`, `Palette`, `PaletteType`, `Order`, `Pulse` (the envelope), `Effects` (the reactions to the music), `Renderer` (the pause fade) and `LocalPlayback` |
 | `domain.hue` | The Hue streaming protocol: `Zone`, `Frame`, `LightUpdate` and their binary codecs |
-| `domain.spotify` | Spotify API models: `PlaybackState`, `SpotifyToken`, `SpotifySegment`, `SpotifyCredentials` |
+| `domain.spotify` | Spotify API models: `PlaybackState`, `SpotifyToken`, `SpotifySession`, `SpotifySegment`, `SpotifyCredentials` |
 | `givens.circe` | Shared circe codecs |
 
 ## Main types
@@ -230,7 +230,7 @@ sequenceDiagram
 
 - Everything runs in `IO` through tagless-final `F[_]` constraints (`Async`, `Network`).
 - Shared state lives in Cats Effect primitives:
-  - `Ref` for the Spotify access token, the per-track tempo and palette cache, and the track-analysis cache
+  - `Ref` for the Spotify session (access and refresh tokens), the per-track tempo and palette cache, and the track-analysis cache
   - `Deferred` to hand the OAuth code from the callback server to the client
   - `SignallingRef` for the latest playback state shared by the poller and the renderer
 - The poller and the renderer are two fs2 streams merged into one, so stopping the app cancels both.
