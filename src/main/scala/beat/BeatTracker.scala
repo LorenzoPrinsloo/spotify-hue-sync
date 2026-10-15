@@ -45,6 +45,7 @@ case class TrackerSettings(
   reestimateEvery: Int = 22,
   silenceRms: Double = 0.002,
   minConfidence: Double = 2.5,
+  keepConfidence: Double = 1.2,
   holdSeconds: Double = 10.0,
   hitRatio: Double = 1.15,
   sparkleRatio: Double = 4.0
@@ -130,13 +131,15 @@ case class BeatTracker(
     val nextLoudness = (loudness :+ onset.rms).takeRight(s.capacity)
     val n = frames + 1
 
+    // Locking on takes a confident estimate; once locked, a weaker one that agrees on the tempo keeps the beat, since
+    // a tempo that stays put is evidence in itself.
     val nextBeat =
       if (n % s.reestimateEvery != 0) beat
       else if (nextEnvelope.size < s.minFrames) None
       else
         BeatTracker
           .estimate(s, nextEnvelope, nextLoudness, now, beat)
-          .filter(_.confidence >= s.minConfidence)
+          .filter(e => e.confidence >= s.minConfidence || (e.confidence >= s.keepConfidence && beat.exists(BeatTracker.sameTempo(_, e))))
           .orElse(beat.filter(held => (now - held.updatedAt).toNanos / 1e9 <= s.holdSeconds))
 
     // Treble-led onsets are hi-hats and cymbals rather than the click of a kick, whose bass outweighs its treble.
@@ -179,6 +182,11 @@ object BeatTracker {
 
   def initial(settings: TrackerSettings = TrackerSettings()): BeatTracker =
     BeatTracker(settings, OnsetDetector.initial(settings.window), Vector.empty, Vector.empty, 0L, None)
+
+  /** Tempos within this fraction of each other count as the same, measured slightly differently. */
+  val TempoTolerance: Double = 0.04
+
+  def sameTempo(a: BeatState, b: BeatState): Boolean = math.abs(b.bpm - a.bpm) / a.bpm < TempoTolerance
 
   def median(values: Vector[Double]): Double =
     if (values.isEmpty) 0.0 else values.sorted.apply(values.size / 2)
@@ -263,8 +271,8 @@ object BeatTracker {
       val period = candidates.maxBy(score)
       val measuredBpm = 60 * s.frameRate / period
       val bpm = previous match {
-        case Some(p) if math.abs(measuredBpm - p.bpm) / p.bpm < 0.04 => 0.7 * p.bpm + 0.3 * measuredBpm
-        case _                                                       => measuredBpm
+        case Some(p) if math.abs(measuredBpm - p.bpm) / p.bpm < TempoTolerance => 0.7 * p.bpm + 0.3 * measuredBpm
+        case _                                                                  => measuredBpm
       }
       val beatFrames = 60 * s.frameRate / bpm
       val (offset, gridLevel, _) = bestOffset(beatFrames)

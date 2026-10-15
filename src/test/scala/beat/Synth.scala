@@ -67,6 +67,10 @@ object Synth {
   /** Plays one piece of audio after another. */
   def concat(parts: Array[Float]*): Array[Float] = parts.flatten.toArray
 
+  /** Plays pieces of audio at the same time, as long as the longest. */
+  def mix(parts: Array[Float]*): Array[Float] =
+    Array.tabulate(parts.map(_.length).max)(i => parts.map(p => if (i < p.length) p(i) else 0f).sum)
+
   def silence(seconds: Double): Array[Float] = new Array[Float]((seconds * sr).toInt)
 
   /** Cuts audio into hop-sized frames, each stamped with the time its last sample was captured, plus `latency`. */

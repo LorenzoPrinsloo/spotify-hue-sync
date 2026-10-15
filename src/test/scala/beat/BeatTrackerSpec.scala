@@ -102,6 +102,23 @@ class BeatTrackerSpec extends ScalaCheckSuite {
     assert(duringPad.forall(_.exists(bpm => math.abs(bpm - 128) < 1.5)), duringPad.distinct.toString)
   }
 
+  private val weakBeat = Synth.mix(Synth.drums(16, _ => 124, loudness = 0.15)._1, Synth.noise(16, loudness = 0.2))
+
+  test("once locked, keeps the beat through a long passage where it's weaker but steady") {
+    val beat = Synth.track(Synth.concat(Synth.drums(10, _ => 124)._1, weakBeat)).beat
+    assertEqualsDouble(beat.map(_.bpm).getOrElse(0.0), 124.0, 1.5)
+  }
+
+  test("that passage would lose the beat if weaker estimates couldn't keep it") {
+    val strict = Synth.settings.copy(keepConfidence = Synth.settings.minConfidence)
+    val tracked = Synth.frames(Synth.concat(Synth.drums(10, _ => 124)._1, weakBeat)).foldLeft(BeatTracker.initial(strict))(_.step(_))
+    assertEquals(tracked.beat, None)
+  }
+
+  test("a weak beat on its own isn't enough to lock on") {
+    assertEquals(Synth.track(weakBeat).beat, None)
+  }
+
   test("noise alone never produces a beat") {
     assertEquals(Synth.track(Synth.noise(12)).beat, None)
   }
