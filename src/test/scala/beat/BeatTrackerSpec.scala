@@ -7,8 +7,10 @@ import scala.concurrent.duration.*
 
 class BeatTrackerSpec extends ScalaCheckSuite {
 
-  // Each case tracks seconds of generated audio, so run a fixed, repeatable sample of them.
+  // Each case tracks seconds of generated audio, so run a fixed, repeatable sample of them, and allow them longer than
+  // the default when coverage is being measured.
   override def scalaCheckTestParameters = super.scalaCheckTestParameters.withMinSuccessfulTests(12)
+  override val munitTimeout: Duration = 2.minutes
   override val scalaCheckInitialSeed: String = org.scalacheck.rng.Seed(20261014L).toBase64
 
   test("the FFT puts a pure tone in the right frequency bin") {
@@ -264,5 +266,12 @@ class BeatTrackerSpec extends ScalaCheckSuite {
 
   test("without a beat there's no kick pattern") {
     assertEquals(Synth.readings(Synth.noise(12)).last._2.groove, Vector.empty)
+  }
+
+  test("the tracker takes its tempo range, hold and thresholds from the light show's settings") {
+    import domain.config.{AudioSettings, LightShowConfig, ReactiveSettings}
+    val show = LightShowConfig(audio = AudioSettings(minBpm = 80, maxBpm = 150, holdSeconds = 4), reactive = ReactiveSettings(hitRatio = 1.3, sparkleRatio = 6))
+    val s = TrackerSettings.from(show)
+    assertEquals((s.minBpm, s.maxBpm, s.holdSeconds, s.hitRatio, s.sparkleRatio), (80.0, 150.0, 4.0, 1.3, 6.0))
   }
 }

@@ -15,5 +15,12 @@ jobs:
           java-version: 21
           cache: sbt
       - uses: sbt/setup-sbt@v1
-      - name: Lint and test
+      - name: Lint, test and check coverage
         run: sbt check
+      - name: Keep the coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: target/scala-3.3.7/scoverage-report
+          if-no-files-found: ignore

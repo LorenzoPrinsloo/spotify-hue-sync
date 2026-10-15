@@ -1,5 +1,6 @@
 package beat
 
+import domain.config.LightShowConfig
 import scala.concurrent.duration.*
 
 case class TrackerSettings(
@@ -30,4 +31,17 @@ case class TrackerSettings(
 
   /** Smoothing factor of an exponential average with the given time constant, per hop. */
   def smoothing(seconds: Double): Double = 1 - math.exp(-(hop / sampleRate) / seconds)
+}
+
+object TrackerSettings {
+
+  /** The tracker's tuning, from the light show's settings. */
+  def from(show: LightShowConfig): TrackerSettings =
+    TrackerSettings(
+      minBpm = show.audio.minBpm,
+      maxBpm = show.audio.maxBpm,
+      holdSeconds = show.audio.holdSeconds,
+      hitRatio = show.reactive.hitRatio,
+      sparkleRatio = show.reactive.sparkleRatio
+    )
 }

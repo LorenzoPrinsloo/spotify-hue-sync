@@ -96,12 +96,10 @@ class HueClient[F[_]: Async](
       _ <- logger.info(s"Setting Hue streaming to $active for zone $zoneId")
       _ <- httpClient.run(request).use { response =>
         if (response.status.isSuccess) Async[F].unit
-        else {
-          EntityDecoder.decodeText(response)
-            .flatMap { json =>
-              logger.error(s"Spotify Exchange Failed. Body: $body") *> Async[F].raiseError(new Exception(s"Hue API error: ${response.status} $json"))
-            }
-        }
+        else
+          EntityDecoder.decodeText(response).flatMap { text =>
+            Async[F].raiseError(HueApiError(s"Couldn't ${if (active) "start" else "stop"} streaming on $zoneId: ${response.status} $text"))
+          }
       }
     } yield ()
   }

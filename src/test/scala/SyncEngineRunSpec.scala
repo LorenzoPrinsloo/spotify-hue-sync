@@ -54,7 +54,8 @@ class SyncEngineRunSpec extends CatsEffectSuite {
     tempo: IO[Response[IO]] = Ok("""{ "tempo": 128.0 }"""),
     seed: Long = 1L,
     audio: Stream[IO, AudioReading] = Stream.empty,
-    trackAt: FiniteDuration => String = _ => "track-1"
+    trackAt: FiniteDuration => String = _ => "track-1",
+    pollFails: Boolean = false
   )
 
   private def engine(setup: Setup, tempoCalls: Ref[IO, Int]): IO[(SyncEngine[IO], LiveSettings[IO])] =
@@ -63,7 +64,8 @@ class SyncEngineRunSpec extends CatsEffectSuite {
       code <- Deferred[IO, String]
       app = HttpRoutes.of[IO] {
         case GET -> Root / "v1" / "me" / "player" =>
-          IO.realTime.flatMap(now => if (now < setup.playingUntil) Ok(playing(setup.trackAt(now))) else NoContent())
+          if (setup.pollFails) InternalServerError("busy")
+          else IO.realTime.flatMap(now => if (now < setup.playingUntil) Ok(playing(setup.trackAt(now))) else NoContent())
         case GET -> Root / "v1" / "audio-features" / _ =>
           tempoCalls.update(_ + 1) *> setup.tempo
       }.orNotFound
@@ -299,6 +301,13 @@ class SyncEngineRunSpec extends CatsEffectSuite {
         _ <- live.update(classic.copy(area = Some("Attic"))) *> e.applyNow
         stayed <- e.showFor(track)
       } yield assertEquals((moved.zone, stayed.zone), (downstairs, downstairs))
+    }
+  }
+
+  test("a poll that fails counts as nothing playing, and the show carries on resting") {
+    run(Setup(pollFails = true), 4.seconds).map { (frames, _, _) =>
+      assert(frames.size > 200, frames.size)
+      assert(frames.forall((_, f) => isResting(f)))
     }
   }
 

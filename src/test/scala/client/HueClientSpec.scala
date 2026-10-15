@@ -1,6 +1,7 @@
 package client
 
 import cats.effect.{IO, Ref}
+import cats.syntax.all.*
 import domain.hue.{HueCredentials, MusicArea}
 import munit.CatsEffectSuite
 import org.http4s.*
@@ -77,5 +78,38 @@ class HueClientSpec extends CatsEffectSuite {
     new HueClient[IO](creds, bridge).areas.assertEquals(
       List(MusicArea("up", "Upstairs", "music", List("Hall", "Bedroom"), 2), MusicArea("tv", "TV", "screen", List("Lounge"), 1))
     )
+  }
+
+  test("starts and stops streaming on an area with the application key") {
+    for {
+      seen <- Ref.of[IO, List[(String, Option[String])]](Nil)
+      bridge = Client.fromHttpApp(HttpRoutes.of[IO] {
+        case req @ PUT -> Root / "clip" / "v2" / "resource" / "entertainment_configuration" / "zone-1" =>
+          req.bodyText.compile.string.flatMap { text =>
+            val action = io.circe.parser.parse(text).flatMap(_.hcursor.downField("action").as[String]).getOrElse("?")
+            seen.update(_ :+ (action -> req.headers.get(ci"hue-application-key").map(_.head.value))) *> Ok()
+          }
+      }.orNotFound)
+      hue = new HueClient[IO](creds, bridge)
+      _ <- hue.setStreaming("zone-1", active = true) *> hue.setStreaming("zone-1", active = false)
+      actions <- seen.get
+    } yield assertEquals(actions, List("start" -> Some("app-key"), "stop" -> Some("app-key")))
+  }
+
+  test("a bridge that won't start streaming is an error naming the area and the reason") {
+    val bridge = Client.fromHttpApp(HttpRoutes.of[IO] {
+      case PUT -> Root / "clip" / "v2" / "resource" / "entertainment_configuration" / "zone-1" => Forbidden("not your area")
+    }.orNotFound)
+    new HueClient[IO](creds, bridge).setStreaming("zone-1", active = true).attempt.map {
+      case Left(HueApiError(message)) => assert(message.contains("start streaming on zone-1") && message.contains("403") && message.contains("not your area"), message)
+      case other                      => fail(s"expected a HueApiError, got $other")
+    }
+  }
+
+  test("listing the areas fails with a HueApiError when the bridge refuses or answers in an unexpected shape") {
+    List(InternalServerError("busy"), Ok("""{ "nothing": [] }""")).traverse_ { answer =>
+      val bridge = Client.fromHttpApp(HttpRoutes.of[IO] { case GET -> Root / "clip" / "v2" / "resource" / _ => answer }.orNotFound)
+      new HueClient[IO](creds, bridge).areas.attempt.map(result => assert(result match { case Left(_: HueApiError) => true; case _ => false }, result.toString))
+    }
   }
 }

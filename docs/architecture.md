@@ -61,15 +61,15 @@ flowchart LR
 |---|---|
 | (root) | `Main`, which wires everything together, and `SyncEngine`, which turns playback state into light frames |
 | (root) | Also `Lights`: the bridge's entertainment areas and the channels in each, as the engine sees them |
-| `client` | Everything that talks to the outside world: `SpotifyClient`, `CachedSpotifyClient`, `HueClient` (including the list of entertainment areas), `DtlsEmitter`, and `EntertainmentStream`, which streams each frame to its area and moves the stream when the area changes |
-| `audio` | `AudioInput`: captures audio from an input device such as BlackHole |
+| `client` | Everything that talks to the outside world: `SpotifyClient`, `HueClient` (including the list of entertainment areas), `DtlsEmitter`, and `EntertainmentStream`, which streams each frame to its area and moves the stream when the area changes |
+| `audio` | `AudioCapture` captures audio from an input device such as BlackHole; `AudioInput` holds its format, chooses the device and mixes the audio to mono; `CaptureClock` times each block |
 | `beat` | Live beat detection: `Fft`, `OnsetDetector`, `BeatTracker`, `BeatState`, `Groove` (the bar's kick pattern), `AudioReading` and the `BeatTracking` stream |
 | `domain.config` | `AppConfig`, `HueConfig`, `UiConfig` and `LightShowConfig` (with `PulseSettings`, `PauseSettings`, `AudioSettings`, `ReactiveSettings` and `SwellSettings`, in `model`), loaded with pureconfig from `application.conf` on top of the defaults in `reference.conf` by `LightShowConfigReaders`; `SettingsView`, `SettingsProblems` and `ConfigSnippet` for the settings page |
 | `settings` | `LiveSettings` (the settings for this session, taken up as each song starts), `SettingsRoutes` (the page and its API), `ShowControls` (what the page asks of the running show: apply now, the areas, the song's palette) and `SettingsServer` |
 | `ui` | The settings page: `SettingsPage`, `Sections` (every setting on it), `Api` |
 | `domain.engine` | The colour engine and animation: `RGB`, `Palette`, `PaletteType`, `Order`, `Pulse` (the envelopes), `Effects` (the reactions to the music), `LightRole` (each light's job), `Renderer` (the pause fade) and `LocalPlayback` |
 | `domain.hue` | The Hue streaming protocol: `Zone`, `Frame`, `LightUpdate` and their binary codecs; `MusicArea` (in `model`), an entertainment area and how the one to play on is chosen |
-| `domain.spotify` | Spotify API models: `PlaybackState`, `SpotifyToken`, `SpotifySession`, `SpotifySegment`, `SpotifyCredentials` |
+| `domain.spotify` | Spotify API models: `PlaybackState`, `SpotifyToken`, `SpotifySession`, `SpotifyCredentials` |
 | `givens.circe` | Shared circe codecs |
 
 ## Main types
@@ -296,7 +296,7 @@ sequenceDiagram
 
 - Everything runs in `IO` through tagless-final `F[_]` constraints (`Async`, `Network`).
 - Shared state lives in Cats Effect primitives:
-  - `Ref` for the Spotify session (access and refresh tokens), the current song's show, the pending and applied settings (`LiveSettings`), each area's channels once read (`Lights`), and the track-analysis cache
+  - `Ref` for the Spotify session (access and refresh tokens), the current song's show, the pending and applied settings (`LiveSettings`), and each area's channels once read (`Lights`)
   - `Deferred` to hand the OAuth code from the callback server to the client
   - `SignallingRef` for the latest playback state shared by the poller and the renderer
 - The poller and the renderer are two fs2 streams merged into one, so stopping the app cancels both.

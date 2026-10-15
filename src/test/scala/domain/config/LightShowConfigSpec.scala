@@ -17,6 +17,11 @@ class LightShowConfigSpec extends FunSuite {
     ConfigSource.string(required + lightShow).withFallback(reference).load[AppConfig].left.map(_.prettyPrint())
 
   test("reference.conf holds the same defaults as the code") {
+    val loaded = load()
+    assertEquals(loaded, loaded.map(c => AppConfig(c.spotify, c.hue)))
+    val withoutZone = ConfigSource.string(required.replace("zone-id = \"zone\", ", "")).withFallback(reference).load[AppConfig]
+    assertEquals(withoutZone.map(_.hue), withoutZone.map(c => HueConfig(c.hue.creds)))
+    assertEquals(withoutZone.map(_.hue.zoneId), Right(None))
     assertEquals(load().map(_.lightShow), Right(LightShowConfig()))
     assertEquals(load().map(_.pollingIntervalMs), Right(2000))
     assertEquals(load().map(_.ui), Right(UiConfig()))
@@ -108,5 +113,13 @@ class LightShowConfigSpec extends FunSuite {
     assert(load("light-show.beat-source = \"microphone\"").isLeft)
     assert(load("light-show.audio.min-bpm = 150\nlight-show.audio.max-bpm = 100").isLeft)
     assert(load("light-show.audio.device = \" \"").isLeft)
+  }
+
+  test("the app's config loads from a source, failing loudly when something required is missing") {
+    import cats.effect.unsafe.implicits.global
+    val loaded = AppConfig.load[cats.effect.IO](ConfigSource.string(required).withFallback(reference)).attempt.unsafeRunSync()
+    val broken = AppConfig.load[cats.effect.IO](ConfigSource.string("hue { creds { address = x } }").withFallback(reference)).attempt.unsafeRunSync()
+    assertEquals(loaded.map(c => (c.hue.zoneId, c.lightShow, c.ui)), Right((Some("zone"), LightShowConfig(), UiConfig())))
+    assert(broken.isLeft, broken.toString)
   }
 }

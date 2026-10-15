@@ -47,12 +47,11 @@ class SpotifyClient[F[_]: Async: Network](
 
     for
       _ <- logger.info(s"Please visit: $authUrl")
-      status <- client.run(Request[F](Method.GET, Uri.unsafeFromString(authUrl)).putHeaders(Header.Raw(ci"Cookie", s"sp_dc=${sys.env.getOrElse("SPOTIFY_SP_DC", "")}")))
-        .use { res =>
-          res.as[String]
-        }
-     // r <- client.run(req)
-      code <- authCodeDeferred.get // This blocks (semantically) until the route is hit
+      // With a valid session cookie this lands on the callback with the code; otherwise it's Spotify's login page, and
+      // the code comes when the authorize URL is opened in a browser. Either way the page itself isn't needed.
+      _ <- client.run(Request[F](Method.GET, Uri.unsafeFromString(authUrl)).putHeaders(Header.Raw(ci"Cookie", s"sp_dc=${sys.env.getOrElse("SPOTIFY_SP_DC", "")}")))
+        .use(_.body.compile.drain)
+      code <- authCodeDeferred.get
       authHeader = Authorization(BasicCredentials(creds.clientId, creds.clientSecret))
       form = UrlForm(
         "grant_type" -> "authorization_code",
@@ -133,37 +132,20 @@ class SpotifyClient[F[_]: Async: Network](
       else Async[F].pure(None)
     }
 
-  /**
-   * Port of fetch-spotify-track-segments.ts
-   */
-  def getTrackAnalysis(id: TrackId): F[Vector[SpotifySegment]] =
-    for
-      token <- getOrRefresh
-      req    = GET(apiUri / "audio-analysis" / id.value).withHeaders(Authorization(Credentials.Token(AuthScheme.Bearer, token)))
-      json  <- client.expectOr[io.circe.Json](req){ errorRes =>
-        errorRes.as[Json].flatMap { body =>
-          logger.error(s"Spotify Exchange Failed. Body: $body") *>
-            Async[F].raiseError(new RuntimeException(s"Spotify Error ${errorRes.status}: $body"))
-        }
-      }
-      segments = json.hcursor.downField("segments").as[Vector[SpotifySegment]].getOrElse(Vector.empty)
-    yield segments
-
 object SpotifyClient:
-  def serverResource[F[_] : Async: Network](deferred: Deferred[F, String]): Resource[F, org.http4s.server.Server] = {
+
+  /** Where Spotify sends the browser back after sign-in: hands the code it carries to `deferred`. */
+  def callbackRoutes[F[_]: Async](deferred: Deferred[F, String]): HttpRoutes[F] = {
     val dsl = new org.http4s.dsl.Http4sDsl[F] {}
     import dsl.*
-
-    val routes = org.http4s.HttpRoutes.of[F] {
+    HttpRoutes.of[F] {
       case GET -> Root / "callback" :? CodeMatcher(code) =>
-        for {
-          _ <- deferred.complete(code)
-          res <- Ok("Success! Return to your terminal.")
-        } yield res
-    }.orNotFound
-
-    EmberServerBuilder.default[F].withHost( ipv4"127.0.0.1").withPort(port"7070").withHttpApp(routes).build
+        deferred.complete(code) *> Ok("Success! Return to your terminal.")
+    }
   }
+
+  def serverResource[F[_] : Async: Network](deferred: Deferred[F, String]): Resource[F, org.http4s.server.Server] =
+    EmberServerBuilder.default[F].withHost(ipv4"127.0.0.1").withPort(port"7070").withHttpApp(callbackRoutes(deferred).orNotFound).build
 
   def resource[F[_] : Async: Network](client: Client[F], creds: SpotifyCredentials): Resource[F, SpotifyClient[F]] =
     for

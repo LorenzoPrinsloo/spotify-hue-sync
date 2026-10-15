@@ -1,9 +1,9 @@
 import cats.effect.*
 import cats.effect.{ExitCode, IOApp}
 import cats.effect.kernel.Resource
-import client.{CachedSpotifyClient, DtlsEmitter, EntertainmentStream, HueClient}
+import client.{DtlsEmitter, EntertainmentStream, HueClient, SpotifyClient}
 import cats.syntax.all.*
-import beat.BeatTracking
+import beat.{BeatTracking, TrackerSettings}
 import domain.config.{AppConfig, BeatSource}
 import domain.hue.{MusicArea, Zone}
 import domain.engine.RGB
@@ -24,11 +24,11 @@ object Main extends IOApp {
 
   override def run(args: List[String]): IO[ExitCode] = {
     val resources = for {
-      config <- Resource.eval(AppConfig.load[IO])
+      config <- Resource.eval(AppConfig.load[IO](pureconfig.ConfigSource.default))
       tlsContext <- Resource.eval(TLSContext.Builder.forAsync[IO].insecure)
       httpClient <- EmberClientBuilder.default[IO].withTLSContext(tlsContext).build.map {c => FollowRedirect(2)(c)}
 
-      spotify <- CachedSpotifyClient.resource[IO](httpClient, config.spotify)
+      spotify <- SpotifyClient.resource[IO](httpClient, config.spotify)
       hueClient = new HueClient[IO](config.hue.creds, httpClient)
       emitter = new DtlsEmitter[IO](config.hue.creds)
 
@@ -39,7 +39,7 @@ object Main extends IOApp {
       live <- Resource.eval(LiveSettings.make[IO](config.lightShow.copy(area = Some(area.name)), areas))
       channels <- Resource.eval(hueClient.getChannels(area.id))
       audio = config.lightShow.beatSource match {
-        case BeatSource.Audio   => BeatTracking.listen[IO](config.lightShow.audio.device, live.applied.map(BeatTracking.trackerSettings))
+        case BeatSource.Audio   => BeatTracking.listen[IO](config.lightShow.audio.device, live.applied.map(TrackerSettings.from))
         case BeatSource.Spotify => fs2.Stream.empty
       }
       _ <- Resource.eval(logger.info(s"Listening for the beat on '${config.lightShow.audio.device}'. If it never locks on, check that music is playing through it and that your terminal has microphone access.").whenA(config.lightShow.beatSource == BeatSource.Audio))

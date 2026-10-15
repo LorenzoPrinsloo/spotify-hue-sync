@@ -10,4 +10,4 @@ package beat
  * `pitch` is where the sound in the middle of the spectrum (vocals, leads, chords) is centred, in octaves above 1 Hz,
  * or None when that range is silent.
  */
-case class Onset(flux: Double, bassFlux: Double, trebleFlux: Double, rms: Double, kick: Double = 0.0, pitch: Option[Double] = None)
+case class Onset(flux: Double, bassFlux: Double, trebleFlux: Double, rms: Double, kick: Double, pitch: Option[Double])

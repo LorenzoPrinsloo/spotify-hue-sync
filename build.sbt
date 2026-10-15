@@ -18,10 +18,19 @@ ThisBuild / scalafixDependencies ++= Seq(
   "org.typelevel"      %% "typelevel-scalafix" % "0.6.0"
 )
 
-// `sbt fix` applies the rules' rewrites; `sbt lint` fails if anything is left; `sbt check` lints, then tests.
+// Test coverage, measured by `sbt check`, which fails if the code falls below these. Good coverage here means at
+// least 90% of statements and 85% of branches across the app and the shared model, and 70% of statements in every
+// file, so a new file can't go untested behind the totals.
+ThisBuild / coverageMinimumStmtTotal := 90
+ThisBuild / coverageMinimumBranchTotal := 85
+ThisBuild / coverageMinimumStmtPerFile := 70
+ThisBuild / coverageFailOnMinimum := true
+
+// `sbt fix` applies the rules' rewrites; `sbt lint` fails if anything is left; `sbt check` lints, then runs the tests
+// with coverage measured and fails below the minimums above. `sbt test` runs them without coverage.
 addCommandAlias("fix", "scalafixAll")
 addCommandAlias("lint", "scalafixAll --check")
-addCommandAlias("check", ";lint ;test")
+addCommandAlias("check", ";lint ;clean ;coverage ;test ;coverageAggregate ;coverageOff")
 
 lazy val lintSettings = Seq(
   Test / scalafixConfig := Some((ThisBuild / baseDirectory).value / ".scalafix.test.conf")
@@ -32,6 +41,7 @@ lazy val model = crossProject(JVMPlatform, JSPlatform)
   .crossType(CrossType.Pure)
   .in(file("model"))
   .settings(lintSettings)
+  .jsSettings(coverageEnabled := false)
   .settings(
     name := "spotify-hue-sync-model",
     scalacOptions ++= Seq("-deprecation", "-feature"),
@@ -50,6 +60,8 @@ lazy val ui = project
   .enablePlugins(ScalaJSPlugin)
   .dependsOn(model.js)
   .settings(lintSettings)
+  // Scala 3 records coverage on the JVM only, so the page is covered by its own tests rather than measured.
+  .settings(coverageEnabled := false)
   .settings(
     name := "spotify-hue-sync-ui",
     scalacOptions ++= Seq("-deprecation", "-feature"),
@@ -73,6 +85,11 @@ lazy val root = project
 
     // `sbt run` starts the app only, not the settings page's own (browser-only) entry point.
     run / aggregate := false,
+
+    // Left out of the coverage measurement: the edges that need real hardware or a real network to run, which tests
+    // can't drive. Main only wires the app together; AudioCapture opens the audio device; DtlsEmitter holds the DTLS
+    // socket to the bridge; BeatTracking joins the audio device to the tracker. What they call is measured and tested.
+    coverageExcludedPackages := "Main;audio\\.AudioCapture;client\\.DtlsEmitter;beat\\.BeatTracking",
 
     // The compiled settings page is served from the classpath, at ui/main.js beside ui/index.html.
     Compile / resourceGenerators += Def.task {

@@ -13,6 +13,6 @@ case class AppConfig(
   ui: UiConfig = UiConfig()
 ) derives ConfigReader
 object AppConfig {
-  def load[F[_] : Sync]: F[AppConfig] =
-    Sync[F].blocking(ConfigSource.default.loadOrThrow[AppConfig])
+  def load[F[_] : Sync](source: ConfigSource): F[AppConfig] =
+    Sync[F].blocking(source.loadOrThrow[AppConfig])
 }
