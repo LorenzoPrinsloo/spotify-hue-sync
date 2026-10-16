@@ -2,6 +2,7 @@ name: CI
 
 on:
   push:
+    branches: [master]
   pull_request:
 
 jobs:
@@ -22,5 +23,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
-          path: target/scala-3.9.0/scoverage-report
+          path: target/scala-*/scoverage-report
           if-no-files-found: ignore
