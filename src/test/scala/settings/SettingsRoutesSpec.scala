@@ -15,7 +15,8 @@ class SettingsRoutesSpec extends CatsEffectSuite {
   private val fromFile = LightShowConfig(beatSource = BeatSource.Audio)
   private val sharper = fromFile.copy(pulse = PulseSettings().copy(attack = 0.05))
   private val songPalette = Vector(RGB.fromHex("#ff8800"), RGB.fromHex("#0088ff")).flatten
-  private val areas = List(MusicArea("a-1", "Upstairs", "music", List("Hall", "Bedroom"), 4), MusicArea("a-2", "Downstairs", "music", List("Kitchen"), 3))
+  private val areas =
+    List(MusicArea("a-1", "Upstairs", "music", List("Hall", "Bedroom"), 4), MusicArea("a-2", "Downstairs", "music", List("Kitchen"), 3))
 
   /** The routes, the settings behind them, and how many times they've asked to apply the settings now. */
   private case class Fixture(app: HttpApp[IO], live: LiveSettings[IO], applied: Ref[IO, Int])

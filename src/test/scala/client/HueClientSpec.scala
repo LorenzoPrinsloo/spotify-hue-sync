@@ -65,15 +65,16 @@ class HueClientSpec extends CatsEffectSuite {
         |    "channels": [ { "channel_id": 0, "members": [ { "service": { "rid": "e-1" } } ] },
         |                  { "channel_id": 1, "members": [ { "service": { "rid": "e-2" } } ] },
         |                  { "channel_id": 2, "members": [ { "service": { "rid": "e-2" } } ] } ] } ] }""".stripMargin
-    val services = """{ "data": [ { "id": "e-1", "owner": { "rid": "d-1" } }, { "id": "e-2", "owner": { "rid": "d-2" } }, { "id": "e-3", "owner": { "rid": "d-3" } } ] }"""
+    val services =
+      """{ "data": [ { "id": "e-1", "owner": { "rid": "d-1" } }, { "id": "e-2", "owner": { "rid": "d-2" } }, { "id": "e-3", "owner": { "rid": "d-3" } } ] }"""
     val rooms =
       """{ "data": [ { "metadata": { "name": "Hall" }, "children": [ { "rid": "d-1" } ] },
         |            { "metadata": { "name": "Bedroom" }, "children": [ { "rid": "d-2" } ] },
         |            { "metadata": { "name": "Lounge" }, "children": [ { "rid": "d-3" } ] } ] }""".stripMargin
     val bridge = Client.fromHttpApp(HttpRoutes.of[IO] {
       case GET -> Root / "clip" / "v2" / "resource" / "entertainment_configuration" => Ok(configurations)
-      case GET -> Root / "clip" / "v2" / "resource" / "entertainment"               => Ok(services)
-      case GET -> Root / "clip" / "v2" / "resource" / "room"                        => Ok(rooms)
+      case GET -> Root / "clip" / "v2" / "resource" / "entertainment" => Ok(services)
+      case GET -> Root / "clip" / "v2" / "resource" / "room" => Ok(rooms)
     }.orNotFound)
     new HueClient[IO](creds, bridge).areas.assertEquals(
       List(MusicArea("up", "Upstairs", "music", List("Hall", "Bedroom"), 2), MusicArea("tv", "TV", "screen", List("Lounge"), 1))
@@ -101,15 +102,18 @@ class HueClientSpec extends CatsEffectSuite {
       case PUT -> Root / "clip" / "v2" / "resource" / "entertainment_configuration" / "zone-1" => Forbidden("not your area")
     }.orNotFound)
     new HueClient[IO](creds, bridge).setStreaming("zone-1", active = true).attempt.map {
-      case Left(HueApiError(message)) => assert(message.contains("start streaming on zone-1") && message.contains("403") && message.contains("not your area"), message)
-      case other                      => fail(s"expected a HueApiError, got $other")
+      case Left(HueApiError(message)) =>
+        assert(message.contains("start streaming on zone-1") && message.contains("403") && message.contains("not your area"), message)
+      case other => fail(s"expected a HueApiError, got $other")
     }
   }
 
   test("listing the areas fails with a HueApiError when the bridge refuses or answers in an unexpected shape") {
     List(InternalServerError("busy"), Ok("""{ "nothing": [] }""")).traverse_ { answer =>
       val bridge = Client.fromHttpApp(HttpRoutes.of[IO] { case GET -> Root / "clip" / "v2" / "resource" / _ => answer }.orNotFound)
-      new HueClient[IO](creds, bridge).areas.attempt.map(result => assert(result match { case Left(_: HueApiError) => true; case _ => false }, result.toString))
+      new HueClient[IO](creds, bridge).areas.attempt.map(result =>
+        assert(result match { case Left(_: HueApiError) => true; case _ => false }, result.toString)
+      )
     }
   }
 }

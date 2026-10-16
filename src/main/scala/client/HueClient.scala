@@ -14,7 +14,7 @@ import org.http4s.*
 class HueClient[F[_]: Async](
   creds: HueCredentials,
   httpClient: Client[F]
-  ) {
+) {
   private val logger = Slf4jLogger.getLogger[F]
   private val baseUri = Uri.unsafeFromString(s"https://${creds.address}/clip/v2")
 
@@ -34,8 +34,8 @@ class HueClient[F[_]: Async](
         response.as[Json].flatMap { json =>
           json.hcursor.downField("data").downN(0).downField("channels").as[List[Int]](using Decoder.decodeList(using channelId)) match {
             case Right(ids) if ids.nonEmpty => Async[F].pure(ids.distinct.sorted)
-            case Right(_)                   => Async[F].raiseError(HueApiError(s"Entertainment zone $zoneId has no channels"))
-            case Left(err)                  => Async[F].raiseError(HueApiError(s"Unexpected entertainment zone response: ${err.getMessage}"))
+            case Right(_) => Async[F].raiseError(HueApiError(s"Entertainment zone $zoneId has no channels"))
+            case Left(err) => Async[F].raiseError(HueApiError(s"Unexpected entertainment zone response: ${err.getMessage}"))
           }
         }
     }
@@ -46,10 +46,14 @@ class HueClient[F[_]: Async](
     val request = Request[F](Method.GET, baseUri / "resource" / kind).withHeaders(Header.Raw(ci"hue-application-key", creds.username))
     httpClient.run(request).use { response =>
       if (!response.status.isSuccess)
-        EntityDecoder.decodeText(response).flatMap(body => Async[F].raiseError(HueApiError(s"Couldn't read the bridge's $kind list: ${response.status} $body")))
+        EntityDecoder.decodeText(response).flatMap(body =>
+          Async[F].raiseError(HueApiError(s"Couldn't read the bridge's $kind list: ${response.status} $body"))
+        )
       else
         response.as[Json].flatMap { json =>
-          json.hcursor.downField("data").as[List[Json]].leftMap(err => HueApiError(s"Unexpected $kind list from the bridge: ${err.getMessage}")).liftTo[F]
+          json.hcursor.downField("data").as[List[Json]].leftMap(err =>
+            HueApiError(s"Unexpected $kind list from the bridge: ${err.getMessage}")
+          ).liftTo[F]
         }
     }
   }
@@ -86,8 +90,8 @@ class HueClient[F[_]: Async](
    * This opens port 2100 for DTLS traffic.
    */
   def setStreaming(zoneId: String, active: Boolean): F[Unit] = {
-    val uri = baseUri / "resource"  / "entertainment_configuration" / zoneId
-    val body = Json.obj("action" -> Json.fromString(if(active) "start" else "stop"))
+    val uri = baseUri / "resource" / "entertainment_configuration" / zoneId
+    val body = Json.obj("action" -> Json.fromString(if (active) "start" else "stop"))
     val request = Request[F](Method.PUT, uri).withEntity(body).withHeaders(
       Header.Raw(ci"hue-application-key", creds.username)
     )

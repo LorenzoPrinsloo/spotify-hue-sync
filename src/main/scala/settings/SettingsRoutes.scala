@@ -21,15 +21,15 @@ object SettingsRoutes {
       StaticFile.fromResource[F](s"/ui/$name", Some(request)).getOrElseF(NotFound())
 
     HttpRoutes.of[F] {
-      case request @ GET -> Root               => page(request, "index.html")
-      case request @ GET -> Root / "main.js"   => page(request, "main.js")
-      case GET -> Root / "api" / "settings"    => live.view.flatMap(Ok(_))
-      case GET -> Root / "api" / "areas"       => show.areas.flatTap(live.areasFound).flatMap(Ok(_))
-      case GET -> Root / "api" / "palette"     => show.palette.flatMap(Ok(_))
+      case request @ GET -> Root => page(request, "index.html")
+      case request @ GET -> Root / "main.js" => page(request, "main.js")
+      case GET -> Root / "api" / "settings" => live.view.flatMap(Ok(_))
+      case GET -> Root / "api" / "areas" => show.areas.flatTap(live.areasFound).flatMap(Ok(_))
+      case GET -> Root / "api" / "palette" => show.palette.flatMap(Ok(_))
       case request @ PUT -> Root / "api" / "settings" =>
         request.attemptAs[LightShowConfig].value.flatMap {
           case Left(failure) => BadRequest(SettingsProblems(List(failure.message)))
-          case Right(next)   => live.update(next).flatMap(_.fold(BadRequest(_), Ok(_)))
+          case Right(next) => live.update(next).flatMap(_.fold(BadRequest(_), Ok(_)))
         }
       case POST -> Root / "api" / "settings" / "reset" => live.reset.flatMap(Ok(_))
       case POST -> Root / "api" / "settings" / "apply" => show.applyNow *> live.view.flatMap(Ok(_))

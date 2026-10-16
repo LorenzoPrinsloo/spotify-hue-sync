@@ -44,6 +44,7 @@ object Palette {
   }
 
   extension (pal: Palette) {
+
     /** 0-based circular index: light 0 gets the first colour, and the palette repeats after the last. */
     def getColor(index: Int): RGB =
       pal.colors(Math.floorMod(index, pal.colors.size))

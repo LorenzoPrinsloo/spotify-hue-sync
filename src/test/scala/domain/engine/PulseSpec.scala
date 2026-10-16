@@ -60,7 +60,7 @@ class PulseSpec extends ScalaCheckSuite {
   property("timed on the beat, the pulse rises just before each beat and peaks on it") {
     forAll(pulseSettings, Gen.choose(-1000, 1000), Gen.choose(0.0, 0.999)) { (s, n, t) =>
       Pulse.onBeat(n.toDouble, s) > 1 - 1e-9 &&
-        math.abs(Pulse.onBeat(n - s.attack * (1 - t), s) - t) < 1e-9
+      math.abs(Pulse.onBeat(n - s.attack * (1 - t), s) - t) < 1e-9
     }
   }
 

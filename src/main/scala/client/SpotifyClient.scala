@@ -43,13 +43,15 @@ class SpotifyClient[F[_]: Async: Network](
     val redirectUri = "http://127.0.0.1:7070/callback"
     val scopes = List("user-read-playback-state", "user-read-currently-playing").mkString("%20")
     val state = s"random_${random.nextLong()}"
-    val authUrl = s"https://accounts.spotify.com/authorize?client_id=${creds.clientId}&response_type=code&redirect_uri=$redirectUri&scope=$scopes&state=$state"
+    val authUrl =
+      s"https://accounts.spotify.com/authorize?client_id=${creds.clientId}&response_type=code&redirect_uri=$redirectUri&scope=$scopes&state=$state"
 
     for
       _ <- logger.info(s"Please visit: $authUrl")
       // With a valid session cookie this lands on the callback with the code; otherwise it's Spotify's login page, and
       // the code comes when the authorize URL is opened in a browser. Either way the page itself isn't needed.
-      _ <- client.run(Request[F](Method.GET, Uri.unsafeFromString(authUrl)).putHeaders(Header.Raw(ci"Cookie", s"sp_dc=${sys.env.getOrElse("SPOTIFY_SP_DC", "")}")))
+      _ <- client.run(Request[F](Method.GET, Uri.unsafeFromString(authUrl)).putHeaders(Header.Raw(ci"Cookie",
+            s"sp_dc=${sys.env.getOrElse("SPOTIFY_SP_DC", "")}")))
         .use(_.body.compile.drain)
       code <- authCodeDeferred.get
       authHeader = Authorization(BasicCredentials(creds.clientId, creds.clientSecret))
@@ -70,14 +72,13 @@ class SpotifyClient[F[_]: Async: Network](
       _ <- session.set(Some(SpotifySession(resp.access_token, resp.refresh_token.getOrElse(creds.refreshToken))))
     yield resp.access_token
 
-
   /**
    * Helper to always get a valid token.
    */
   def getOrRefresh: F[String] =
     session.get.flatMap:
       case Some(s) => Async[F].pure(s.accessToken)
-      case None    => initialAuth
+      case None => initialAuth
 
   /**
    * Swaps the refresh token for a new access token, keeping the refresh token Spotify sends back, if any.
@@ -110,7 +111,7 @@ class SpotifyClient[F[_]: Async: Network](
       .flatMap(token => send(token).use(resp => if resp.status == Status.Unauthorized then Async[F].pure(None) else read(resp).map(Some(_))))
       .flatMap {
         case Some(result) => Async[F].pure(result)
-        case None         => renew.flatMap(send(_).use(read))
+        case None => renew.flatMap(send(_).use(read))
       }
 
   /**
@@ -144,10 +145,10 @@ object SpotifyClient:
     }
   }
 
-  def serverResource[F[_] : Async: Network](deferred: Deferred[F, String]): Resource[F, org.http4s.server.Server] =
+  def serverResource[F[_]: Async: Network](deferred: Deferred[F, String]): Resource[F, org.http4s.server.Server] =
     EmberServerBuilder.default[F].withHost(ipv4"127.0.0.1").withPort(port"7070").withHttpApp(callbackRoutes(deferred).orNotFound).build
 
-  def resource[F[_] : Async: Network](client: Client[F], creds: SpotifyCredentials): Resource[F, SpotifyClient[F]] =
+  def resource[F[_]: Async: Network](client: Client[F], creds: SpotifyCredentials): Resource[F, SpotifyClient[F]] =
     for
       session <- Resource.eval(Ref.of[F, Option[SpotifySession]](None))
       authCodeDeferred <- Resource.eval(Deferred[F, String])

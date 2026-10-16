@@ -40,7 +40,7 @@ class RGBSpec extends ScalaCheckSuite {
     forAll(vivid) { c =>
       val List(left, _, right) = c.analogous: @unchecked
       math.abs(degrees(hueDistance(hue(left), hue(c))) - 30) < 2 &&
-        math.abs(degrees(hueDistance(hue(right), hue(c))) - 30) < 2
+      math.abs(degrees(hueDistance(hue(right), hue(c))) - 30) < 2
     }
   }
 
@@ -48,7 +48,7 @@ class RGBSpec extends ScalaCheckSuite {
     forAll(vivid, Gen.choose(-360, 360)) { (c, deg) =>
       val r = c.rotateHue(deg)
       math.abs(brightness(r) - brightness(c)) <= 1.0 / 255 + 1e-6 &&
-        math.abs(saturation(r) - saturation(c)) < 0.02
+      math.abs(saturation(r) - saturation(c)) < 0.02
     }
   }
 
@@ -60,9 +60,9 @@ class RGBSpec extends ScalaCheckSuite {
     forAll(vivid) { c =>
       val List(a, b, d) = c.triadic: @unchecked
       a == c &&
-        math.abs(degrees(hueDistance(hue(a), hue(b))) - 120) < 2 &&
-        math.abs(degrees(hueDistance(hue(b), hue(d))) - 120) < 2 &&
-        math.abs(degrees(hueDistance(hue(d), hue(a))) - 120) < 2
+      math.abs(degrees(hueDistance(hue(a), hue(b))) - 120) < 2 &&
+      math.abs(degrees(hueDistance(hue(b), hue(d))) - 120) < 2 &&
+      math.abs(degrees(hueDistance(hue(d), hue(a))) - 120) < 2
     }
   }
 
@@ -70,7 +70,7 @@ class RGBSpec extends ScalaCheckSuite {
     forAll(vivid) { c =>
       val colours = c.tetradic
       colours.size == 4 && colours.head == c &&
-        colours.zip(colours.tail :+ colours.head).forall((x, y) => math.abs(degrees(hueDistance(hue(x), hue(y))) - 90) < 2)
+      colours.zip(colours.tail :+ colours.head).forall((x, y) => math.abs(degrees(hueDistance(hue(x), hue(y))) - 90) < 2)
     }
   }
 
@@ -79,8 +79,8 @@ class RGBSpec extends ScalaCheckSuite {
       val colours = c.monochromatic
       val levels = colours.map(brightness)
       colours.size == 3 &&
-        levels.zip(List(0.35, 0.65, 1.0)).forall((got, want) => math.abs(got - want) <= 1.0 / 255 + 1e-6) &&
-        colours.drop(1).forall(x => degrees(hueDistance(hue(x), hue(c))) < 3)
+      levels.zip(List(0.35, 0.65, 1.0)).forall((got, want) => math.abs(got - want) <= 1.0 / 255 + 1e-6) &&
+      colours.drop(1).forall(x => degrees(hueDistance(hue(x), hue(c))) < 3)
     }
   }
 
@@ -88,8 +88,8 @@ class RGBSpec extends ScalaCheckSuite {
     forAll(vivid, Gen.choose(1.0, 4.0)) { (c, factor) =>
       val scaled = c.scaleBrightness(factor)
       degrees(hueDistance(hue(scaled), hue(c))) < 2 &&
-        math.abs(saturation(scaled) - saturation(c)) < 0.02 &&
-        math.abs(brightness(scaled) - math.min(1.0, brightness(c) * factor)) <= 1.0 / 255 + 1e-6
+      math.abs(saturation(scaled) - saturation(c)) < 0.02 &&
+      math.abs(brightness(scaled) - math.min(1.0, brightness(c) * factor)) <= 1.0 / 255 + 1e-6
     }
   }
 
@@ -103,7 +103,7 @@ class RGBSpec extends ScalaCheckSuite {
     forAll(rgb, rgb, Gen.choose(0.0, 1.0)) { (a, b, t) =>
       val m = a.mix(b, t)
       a.mix(b, 0) == a && a.mix(b, 1) == b &&
-        m.toVector.zip(a.toVector.zip(b.toVector)).forall { case (v, (x, y)) => v >= math.min(x, y) && v <= math.max(x, y) }
+      m.toVector.zip(a.toVector.zip(b.toVector)).forall { case (v, (x, y)) => v >= math.min(x, y) && v <= math.max(x, y) }
     }
   }
 

@@ -14,7 +14,7 @@ case class PlaybackState(
 object PlaybackState {
   given Decoder[PlaybackState] = Decoder.instance { cursor =>
     val item = cursor.downField("item")
-    
+
     for {
       trackId <- item.downField("id").as[String]
       progress <- cursor.downField("progress_ms").as[Long]

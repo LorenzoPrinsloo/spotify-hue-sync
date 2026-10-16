@@ -3,7 +3,7 @@ val circeVersion = "0.14.15"
 val http4sVersion = "0.23.33"
 val fs2Version = "3.12.2"
 val catsEffectVersion = "3.6.3"
-val catsVersion       = "2.13.0"
+val catsVersion = "2.13.0"
 val pureConfigVersion = "0.17.10"
 val scandiumVersion = "3.14.0"
 val refinedVersion = "0.11.3"
@@ -14,8 +14,8 @@ ThisBuild / scalaVersion := scala3Version
 // Scalafix's semantic rules read the SemanticDB the compiler writes alongside the classes.
 ThisBuild / semanticdbEnabled := true
 ThisBuild / scalafixDependencies ++= Seq(
-  "com.github.xuwei-k" %% "scalafix-rules"     % "0.6.30",
-  "org.typelevel"      %% "typelevel-scalafix" % "0.6.0"
+  "com.github.xuwei-k" %% "scalafix-rules" % "0.6.30",
+  "org.typelevel" %% "typelevel-scalafix" % "0.6.0"
 )
 
 // Test coverage, measured by `sbt check`, which fails if the code falls below these. Good coverage here means at
@@ -46,11 +46,11 @@ lazy val model = crossProject(JVMPlatform, JSPlatform)
     name := "spotify-hue-sync-model",
     scalacOptions ++= Seq("-deprecation", "-feature"),
     libraryDependencies ++= Seq(
-      "org.typelevel" %%% "cats-core"   % catsVersion,
-      "io.circe"      %%% "circe-core"  % circeVersion,
-      "eu.timepit"    %%% "refined"     % refinedVersion,
-      "org.scodec"    %%% "scodec-bits" % "1.2.4",
-      "org.scodec"    %%% "scodec-core" % "2.3.3"
+      "org.typelevel" %%% "cats-core" % catsVersion,
+      "io.circe" %%% "circe-core" % circeVersion,
+      "eu.timepit" %%% "refined" % refinedVersion,
+      "org.scodec" %%% "scodec-bits" % "1.2.4",
+      "org.scodec" %%% "scodec-core" % "2.3.3"
     )
   )
 
@@ -67,9 +67,9 @@ lazy val ui = project
     scalacOptions ++= Seq("-deprecation", "-feature"),
     scalaJSUseMainModuleInitializer := true,
     libraryDependencies ++= Seq(
-      "com.raquo"     %%% "laminar"      % laminarVersion,
-      "io.circe"      %%% "circe-parser" % circeVersion,
-      "org.scalameta" %%% "munit"        % munitVersion % Test
+      "com.raquo" %%% "laminar" % laminarVersion,
+      "io.circe" %%% "circe-parser" % circeVersion,
+      "org.scalameta" %%% "munit" % munitVersion % Test
     )
   )
 
@@ -79,8 +79,8 @@ lazy val root = project
   .aggregate(model.jvm, model.js, ui)
   .settings(lintSettings)
   .settings(
-    name         := "spotify-hue-sync",
-    version      := "0.1.0-SNAPSHOT",
+    name := "spotify-hue-sync",
+    version := "0.1.0-SNAPSHOT",
     scalaVersion := scala3Version,
 
     // `sbt run` starts the app only, not the settings page's own (browser-only) entry point.
@@ -114,18 +114,18 @@ lazy val root = project
 
       // Streaming & Networking
       "co.fs2" %% "fs2-core" % fs2Version,
-      "co.fs2" %% "fs2-io"   % fs2Version,
+      "co.fs2" %% "fs2-io" % fs2Version,
 
       // HTTP Client/Server
       "org.http4s" %% "http4s-ember-client" % http4sVersion,
       "org.http4s" %% "http4s-ember-server" % http4sVersion,
-      "org.http4s" %% "http4s-dsl"          % http4sVersion,
-      "org.http4s" %% "http4s-circe"        % http4sVersion,
+      "org.http4s" %% "http4s-dsl" % http4sVersion,
+      "org.http4s" %% "http4s-circe" % http4sVersion,
 
       // JSON
-      "io.circe" %% "circe-core"    % circeVersion,
+      "io.circe" %% "circe-core" % circeVersion,
       "io.circe" %% "circe-generic" % circeVersion,
-      "io.circe" %% "circe-parser"  % circeVersion,
+      "io.circe" %% "circe-parser" % circeVersion,
 
       // Binary Protocol for Hue UDP
       "org.scodec" %% "scodec-bits" % "1.2.4",
@@ -136,7 +136,7 @@ lazy val root = project
       "com.github.pureconfig" %% "pureconfig-generic-scala3" % pureConfigVersion,
 
       // Logging
-      "org.typelevel" %% "log4cats-slf4j"  % "2.7.1",
+      "org.typelevel" %% "log4cats-slf4j" % "2.7.1",
       "ch.qos.logback" % "logback-classic" % "1.5.32",
 
       // DTLS Networking
@@ -146,7 +146,7 @@ lazy val root = project
       "eu.timepit" %% "refined" % refinedVersion,
 
       // Testing
-      "org.scalameta" %% "munit"            % munitVersion % Test,
+      "org.scalameta" %% "munit" % munitVersion % Test,
       "org.scalameta" %% "munit-scalacheck" % munitVersion % Test,
       "org.typelevel" %% "munit-cats-effect" % "2.0.0" % Test,
       "org.typelevel" %% "cats-effect-testkit" % catsEffectVersion % Test

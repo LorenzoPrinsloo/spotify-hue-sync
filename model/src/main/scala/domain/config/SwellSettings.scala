@@ -16,6 +16,7 @@ case class SwellSettings(
   restLevel: Double = 0.25,
   peakBoost: Double = 0.75
 ) derives Codec.AsObject {
+
   /** The swell as a pulse shape, one swell long. */
   def shape: PulseSettings = PulseSettings(0.0, attack, sustain, decayCurve, restLevel, peakBoost)
 }

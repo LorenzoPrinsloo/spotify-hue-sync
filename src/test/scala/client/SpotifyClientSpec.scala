@@ -59,10 +59,13 @@ class SpotifyClientSpec extends CatsEffectSuite {
         case req @ GET -> Root / "v1" / "audio-features" / "track-1" =>
           if (req.headers.get[Authorization].contains(fresh)) Ok("""{ "tempo": 123.5 }""") else rejected
       }.orNotFound
-    } yield Expiring(new SpotifyClient[IO](Client.fromHttpApp(app), SpotifyCredentials("id", "secret", "refresh-0"), session, code), session, renewals)
+    } yield Expiring(new SpotifyClient[IO](Client.fromHttpApp(app), SpotifyCredentials("id", "secret", "refresh-0"), session, code), session,
+      renewals)
 
   private def renewedTo(access: String, refresh: Option[String]): IO[Response[IO]] =
-    Ok(s"""{ "access_token": "$access", "token_type": "Bearer", "expires_in": 3600, "scope": "user-read-playback-state"${refresh.fold("")(r => s""", "refresh_token": "$r"""")} }""")
+    Ok(
+      s"""{ "access_token": "$access", "token_type": "Bearer", "expires_in": 3600, "scope": "user-read-playback-state"${refresh.fold("")(r => s""", "refresh_token": "$r"""")} }"""
+    )
 
   private def renewed(refresh: Option[String]): IO[Response[IO]] = renewedTo("fresh", refresh)
 
@@ -122,7 +125,7 @@ class SpotifyClientSpec extends CatsEffectSuite {
       session <- Ref.of[IO, Option[SpotifySession]](None)
       code <- Deferred[IO, String]
       app = HttpRoutes.of[IO] {
-        case GET -> Root / "authorize"       => code.complete("code-1") *> Ok("signed in")
+        case GET -> Root / "authorize" => code.complete("code-1") *> Ok("signed in")
         case POST -> Root / "api" / "token" => BadRequest("""{ "error": "invalid_grant" }""")
       }.orNotFound
       _ <- new SpotifyClient[IO](Client.fromHttpApp(app), SpotifyCredentials("id", "secret", "refresh-0"), session, code)

@@ -42,9 +42,9 @@ class SyncEngineRunSpec extends CatsEffectSuite {
     def areas: IO[List[MusicArea]] = IO.pure(Nil)
     def zone(area: String): IO[Option[Zone]] =
       IO.pure(area match {
-        case "Upstairs"   => Some(upstairs)
+        case "Upstairs" => Some(upstairs)
         case "Downstairs" => Some(downstairs)
-        case _            => None
+        case _ => None
       })
   }
 
@@ -288,7 +288,9 @@ class SyncEngineRunSpec extends CatsEffectSuite {
     }.map { frames =>
       val playing = playingFrames(frames)
       assert(playing.filter(_._1 < 2900.millis).forall(_._2.zoneId == zone.id), "before the next song")
-      assert(playing.filter(_._1 > 3200.millis).forall(f => f._2.zoneId == downstairs.id && f._2.updates.map(_.id) == downstairs.channels), "after it")
+      assert(
+        playing.filter(_._1 > 3200.millis).forall(f => f._2.zoneId == downstairs.id && f._2.updates.map(_.id) == downstairs.channels), "after it"
+      )
       assert(playing.exists(_._1 > 3200.millis))
     }
   }

@@ -20,15 +20,15 @@ case class TrackShow(tempo: Option[Double], palette: Palette, settings: LightSho
 }
 
 class SyncEngine[F[_]: Async] private (
-                               config: AppConfig,
-                               live: LiveSettings[F],
-                               zone: Zone,
-                               spotify: SpotifyClient[F],
-                               lights: Lights[F],
-                               current: Ref[F, Option[(TrackId, TrackShow)]],
-                               random: Random,
-                               audio: Stream[F, AudioReading]
-                             ):
+  config: AppConfig,
+  live: LiveSettings[F],
+  zone: Zone,
+  spotify: SpotifyClient[F],
+  lights: Lights[F],
+  current: Ref[F, Option[(TrackId, TrackShow)]],
+  random: Random,
+  audio: Stream[F, AudioReading]
+):
 
   private val logger: SelfAwareStructuredLogger[F] = Slf4jLogger.getLogger[F]
 
@@ -45,8 +45,8 @@ class SyncEngine[F[_]: Async] private (
       case Some(name) =>
         lights.zone(name).attempt.flatMap {
           case Right(Some(found)) => logger.info(s"Playing on the $name area").as(found)
-          case Right(None)        => logger.warn(s"There's no $name area on the bridge; staying where the show is").as(fallback)
-          case Left(err)          => logger.warn(s"Couldn't read the $name area from the bridge, staying where the show is: $err").as(fallback)
+          case Right(None) => logger.warn(s"There's no $name area on the bridge; staying where the show is").as(fallback)
+          case Left(err) => logger.warn(s"Couldn't read the $name area from the bridge, staying where the show is: $err").as(fallback)
         }
     }
   }
@@ -86,7 +86,9 @@ class SyncEngine[F[_]: Async] private (
       playing <- current.get
       _ <- playing.traverse_ { (trackId, show) =>
         val palette = if (show.settings.palette == settings.palette) Async[F].pure(show.palette) else newPalette(settings.palette)
-        (palette, zoneFor(settings, Some(show))).flatMapN((p, lit) => current.set(Some(trackId -> show.copy(palette = p, settings = settings, zone = lit))))
+        (palette, zoneFor(settings, Some(show))).flatMapN((p, lit) =>
+          current.set(Some(trackId -> show.copy(palette = p, settings = settings, zone = lit)))
+        )
       }
     } yield ()
 
@@ -107,7 +109,6 @@ class SyncEngine[F[_]: Async] private (
 
   def run: Stream[F, Frame] =
     Stream.eval((SignallingRef[F, Option[LocalPlayback]](None), Ref.of[F, Option[AudioReading]](None)).tupled).flatMap { (stateRef, audioRef) =>
-
       val poller = Stream.awakeEvery[F](config.pollingIntervalMs.millis)
         .evalMap { _ =>
           spotify.getPlaybackState.handleErrorWith { err =>

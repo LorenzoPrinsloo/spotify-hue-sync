@@ -56,7 +56,15 @@ object DocImages {
        |</svg>
        |""".stripMargin
 
-  private def text(x: Double, y: Double, s: String, size: Int = 13, anchor: String = "start", weight: String = "normal", fill: String = "#333"): String =
+  private def text(
+    x: Double,
+    y: Double,
+    s: String,
+    size: Int = 13,
+    anchor: String = "start",
+    weight: String = "normal",
+    fill: String = "#333"
+  ): String =
     s"""<text x="${fmt(x)}" y="${fmt(y)}" font-size="$size" text-anchor="$anchor" font-weight="$weight" fill="$fill">$s</text>"""
 
   private def polar(cx: Double, cy: Double, r: Double, turns: Double): (Double, Double) = {
@@ -148,8 +156,18 @@ object DocImages {
   private case class Band(from: Double, to: Double, label: String, fill: String)
 
   /** A simple line chart; x is in seconds, y in [0, yMax]. */
-  private def lineChart(title: String, width: Int, height: Int, xMax: Double, yMax: Double, yLabel: String,
-                        series: Seq[Series], bands: Seq[Band] = Nil, yTicks: Seq[Double], xTicks: Seq[Double]): String = {
+  private def lineChart(
+    title: String,
+    width: Int,
+    height: Int,
+    xMax: Double,
+    yMax: Double,
+    yLabel: String,
+    series: Seq[Series],
+    bands: Seq[Band] = Nil,
+    yTicks: Seq[Double],
+    xTicks: Seq[Double]
+  ): String = {
     val left = 70.0
     val right = 30.0
     val top = 50.0

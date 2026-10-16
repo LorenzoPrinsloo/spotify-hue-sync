@@ -3,7 +3,7 @@ package audio
 import javax.sound.sampled.AudioFormat
 
 case class AudioDeviceNotFound(device: String, available: List[String])
-  extends Exception(s"No audio input matching '$device'. Available inputs: ${available.mkString(", ")}")
+    extends Exception(s"No audio input matching '$device'. Available inputs: ${available.mkString(", ")}")
 
 /** The audio the app reads from an input device: its format, choosing the device, and turning it into mono samples. */
 object AudioInput {
