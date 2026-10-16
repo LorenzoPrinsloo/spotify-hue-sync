@@ -1,0 +1,25 @@
+name: Design (ADR)
+description: A change big enough to design first. It changes a contract between parts (the shared model, settings JSON, config or env vars, the HTTP API), adds an integration, or changes how the fibers fit together.
+labels: [adr]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What's wrong or missing today, and why it matters.
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints and known options
+      description: Anything the design has to respect, and approaches you already have in mind or have ruled out.
+    validations:
+      required: false
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: One per line. Each is something you can check from outside the code, for the whole change once every slice has landed.
+    validations:
+      required: true

@@ -1,0 +1,25 @@
+name: Bug
+description: Something behaves wrongly.
+labels: [bug]
+body:
+  - type: textarea
+    id: symptom
+    attributes:
+      label: What happens
+      description: What you saw, and how to make it happen.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What should happen
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: One per line. Each is something you can check from outside the code (what the lights, the settings page or the log do), not a detail of the fix.
+      placeholder: "- A bad HUE_PSK stops the app at startup with a message naming the variable"
+    validations:
+      required: true

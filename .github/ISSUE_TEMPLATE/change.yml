@@ -1,0 +1,26 @@
+name: Change
+description: A feature, an improvement or a chore that doesn't need designing first.
+labels: [change]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What and why
+      description: The behaviour you want and the reason for it. Leave the how out.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: One per line. Each is something you can check from outside the code (what the lights, the settings page or the log do), not a detail of the change.
+      placeholder: "- The refresh token survives a restart: the app starts without asking to sign in again"
+    validations:
+      required: true
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      description: Anything this change deliberately leaves alone.
+    validations:
+      required: false
