@@ -11,6 +11,8 @@ final case class Psk private (bytes: ByteVector) {
 
 object Psk {
 
+  private def apply(bytes: ByteVector): Psk = new Psk(bytes)
+
   private val Hex32 = "[0-9a-fA-F]{32}".r
 
   def parse(raw: String): Either[String, Psk] = {

@@ -26,7 +26,7 @@ class MainSpec extends CatsEffectSuite {
   )
 
   private def hocon(psk: String, port: Int): String = {
-    val escaped = psk.replace("\\", "\\\\").replace("\"", "\\\"")
+    val escaped = psk.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
     s"""spotify { client-id = "id", client-secret = "secret", refresh-token = "refresh" }
        |hue { creds { address = "127.0.0.1:$port", username = "user", psk = "$escaped" } }
        |""".stripMargin
@@ -53,6 +53,14 @@ class MainSpec extends CatsEffectSuite {
       LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME).asInstanceOf[Logger].addAppender(appender)
       appender
     })(appender => IO(LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME).asInstanceOf[Logger].detachAppender(appender)))
+
+  List("an upper-case key" -> digits.replace('1', 'A'), "a key with a trailing newline" -> (digits + "\n")).foreach { (name, psk) =>
+    test(s"start gets past config validation and connects to the bridge with $name") {
+      bridgeListener.use { (port, connections) =>
+        Main.start(source(psk, port)).timeout(5.seconds).attempt *> connections.map(count => assert(count >= 1, s"connections: $count"))
+      }
+    }
+  }
 
   badKeys.foreach { (name, psk) =>
     test(s"start exits with an error and never contacts the bridge for $name") {

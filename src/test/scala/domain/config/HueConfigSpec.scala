@@ -52,14 +52,6 @@ class HueConfigSpec extends CatsEffectSuite {
   }
 
   rejected.foreach { (name, raw) =>
-    test(s"a key with $name is rejected when the config loads, naming HUE_PSK without the value") {
-      val failure = source(raw).load[AppConfig].left.map(_.prettyPrint())
-      val pretty = failure.swap.getOrElse(fail("expected a failure"))
-      assert(pretty.contains("HUE_PSK"), pretty)
-      assert(pretty.contains("32 hex digits"), pretty)
-      assertNoLeak(pretty, raw)
-    }
-
     test(s"a key with $name raises a ConfigReaderException naming HUE_PSK without the value") {
       AppConfig.load[IO](source(raw)).attempt.map {
         case Left(e: ConfigReaderException[?]) =>
