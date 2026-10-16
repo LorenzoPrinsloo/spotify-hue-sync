@@ -1,0 +1,5 @@
+# Formatting-only commits, skipped by `git blame` (GitHub does this automatically; locally run
+# `git config blame.ignoreRevsFile .git-blame-ignore-revs` once).
+
+# Format the codebase with scalafmt
+44ad4a9b096b99af7f324bb88fb314f5d1910435
