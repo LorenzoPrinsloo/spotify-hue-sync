@@ -2,7 +2,7 @@ package client
 
 import cats.effect.{IO, Ref}
 import cats.syntax.all.*
-import domain.hue.{HueCredentials, MusicArea}
+import domain.hue.{HueCredentials, Psk, MusicArea}
 import munit.CatsEffectSuite
 import org.http4s.*
 import org.http4s.client.Client
@@ -11,7 +11,7 @@ import org.typelevel.ci.CIStringSyntax
 
 class HueClientSpec extends CatsEffectSuite {
 
-  private val creds = HueCredentials("10.0.0.2", "app-key", "00ff")
+  private val creds = HueCredentials("10.0.0.2", "app-key", Psk.parse("00112233445566778899aabbccddeeff").toOption.get)
 
   private def zoneJson(channels: String) =
     s"""{ "errors": [], "data": [ { "id": "zone-1", "type": "entertainment_configuration", "channels": [ $channels ] } ] }"""

@@ -8,7 +8,7 @@ class LightShowConfigSpec extends FunSuite {
 
   private val required =
     """spotify { client-id = "id", client-secret = "secret", refresh-token = "refresh" }
-      |hue { zone-id = "zone", creds { address = "10.0.0.2", username = "user", psk = "00ff" } }
+      |hue { zone-id = "zone", creds { address = "10.0.0.2", username = "user", psk = "00112233445566778899aabbccddeeff" } }
       |""".stripMargin
 
   private val reference = ConfigSource.resources("reference.conf")
@@ -78,7 +78,7 @@ class LightShowConfigSpec extends FunSuite {
     val shipped = scala.io.Source.fromResource("application.conf").mkString
     val values = Map(
       "SPOTIFY_CLIENT_ID" -> "id", "SPOTIFY_CLIENT_SECRET" -> "secret", "SPOTIFY_REFRESH_TOKEN" -> "r",
-      "HUE_ZONE_ID" -> "zone", "HUE_BRIDGE_ADDRESS" -> "10.0.0.2", "HUE_USERNAME" -> "u", "HUE_PSK" -> "00"
+      "HUE_ZONE_ID" -> "zone", "HUE_BRIDGE_ADDRESS" -> "10.0.0.2", "HUE_USERNAME" -> "u", "HUE_PSK" -> "00112233445566778899aabbccddeeff"
     )
     val resolved = values.foldLeft(shipped)((acc, kv) => acc.replace("${" + kv._1 + "}", "\"" + kv._2 + "\""))
     val result = ConfigSource.string(resolved).withFallback(reference).load[AppConfig].left.map(_.prettyPrint())

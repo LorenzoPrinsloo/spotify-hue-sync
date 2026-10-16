@@ -11,7 +11,6 @@ import org.eclipse.californium.elements.AddressEndpointContext
 import org.eclipse.californium.elements.config.Configuration
 import java.net.InetSocketAddress
 import scodec.Codec
-import scodec.bits.ByteVector
 import org.typelevel.log4cats.SelfAwareStructuredLogger
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 import org.eclipse.californium.scandium.config.DtlsConfig
@@ -20,7 +19,7 @@ import org.eclipse.californium.elements.config.UdpConfig
 class DtlsEmitter[F[_]: Async](creds: HueCredentials):
 
   private val logger: SelfAwareStructuredLogger[F] = Slf4jLogger.getLogger[F]
-  private lazy val pskBytes = ByteVector.fromHex(creds.psk).getOrElse(ByteVector.empty).toArray
+  private lazy val pskBytes = creds.psk.bytes.toArray
   private lazy val pskStore = new AdvancedSinglePskStore(creds.username, pskBytes)
   private val destination = new InetSocketAddress(creds.address, 2100)
 
