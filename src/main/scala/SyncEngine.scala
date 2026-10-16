@@ -172,7 +172,7 @@ object SyncEngine:
     Ref.of[F, Option[(TrackId, TrackShow)]](None).map(new SyncEngine[F](config, live, zone, spotify, lights, _, random, audio))
 
   /** How far the tempo has to move from the last one logged before it's logged again. */
-  val TempoChangeToLog: Double = 0.03
+  private val TempoChangeToLog: Double = 0.03
 
   /**
    * What to log about the beat, given the tempo logged last and the latest beat: that it locked on, that it was lost,

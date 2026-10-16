@@ -32,7 +32,7 @@ class HueClient[F[_]: Async](
         }
       else
         response.as[Json].flatMap { json =>
-          json.hcursor.downField("data").downN(0).downField("channels").as[List[Int]](Decoder.decodeList(channelId)) match {
+          json.hcursor.downField("data").downN(0).downField("channels").as[List[Int]](using Decoder.decodeList(using channelId)) match {
             case Right(ids) if ids.nonEmpty => Async[F].pure(ids.distinct.sorted)
             case Right(_)                   => Async[F].raiseError(HueApiError(s"Entertainment zone $zoneId has no channels"))
             case Left(err)                  => Async[F].raiseError(HueApiError(s"Unexpected entertainment zone response: ${err.getMessage}"))
