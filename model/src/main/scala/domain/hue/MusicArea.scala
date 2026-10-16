@@ -26,7 +26,7 @@ object MusicArea {
       case (None, None) =>
         areas.filter(_.isMusic) match {
           case List(only) => Right(only)
-          case _          => Left(s"Set light-show.area to the music area to play on: $known")
+          case _ => Left(s"Set light-show.area to the music area to play on: $known")
         }
     }
   }

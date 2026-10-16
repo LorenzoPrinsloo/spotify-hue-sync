@@ -46,8 +46,8 @@ class PaletteSpec extends ScalaCheckSuite {
     forAll { (seed: Long) =>
       val base = RGB.random(using new Random(seed)).get
       generate(PaletteType.Triadic, seed).map(_.colors) == Some(base.triadic.toVector) &&
-        generate(PaletteType.Tetradic, seed).map(_.colors) == Some(base.tetradic.toVector) &&
-        generate(PaletteType.Monochromatic, seed).map(_.colors) == Some(base.monochromatic.toVector)
+      generate(PaletteType.Tetradic, seed).map(_.colors) == Some(base.tetradic.toVector) &&
+      generate(PaletteType.Monochromatic, seed).map(_.colors) == Some(base.monochromatic.toVector)
     }
   }
 
@@ -74,7 +74,7 @@ class PaletteSpec extends ScalaCheckSuite {
       generate(PaletteType.Tetradic, seed).exists { p =>
         val size = p.colors.size
         p.getColor(index) == p.colors(Math.floorMod(index, size)) &&
-          (!(index.toLong + size).isValidInt || p.getColor(index) == p.getColor(index + size))
+        (!(index.toLong + size).isValidInt || p.getColor(index) == p.getColor(index + size))
       }
     }
   }

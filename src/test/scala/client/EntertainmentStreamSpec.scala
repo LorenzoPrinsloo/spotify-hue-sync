@@ -24,7 +24,8 @@ class EntertainmentStreamSpec extends CatsEffectSuite {
 
   test("a frame for another area closes the old area's session before opening the new one") {
     stream("up", "down", "down", "up").assertEquals(
-      List("open up", "send up on up", "close up", "open down", "send down on down", "send down on down", "close down", "open up", "send up on up", "close up")
+      List("open up", "send up on up", "close up", "open down", "send down on down", "send down on down", "close down", "open up", "send up on up",
+        "close up")
     )
   }
 }

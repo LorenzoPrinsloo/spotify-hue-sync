@@ -8,7 +8,7 @@ object ConfigSnippet {
 
   def of(settings: LightShowConfig): String =
     changes(LightShowConfig(), settings) match {
-      case Nil     => "# Every light-show setting is at its default"
+      case Nil => "# Every light-show setting is at its default"
       case changed => changed.map((path, value) => s"light-show.$path = ${value.noSpaces}").mkString("\n")
     }
 

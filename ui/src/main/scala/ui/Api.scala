@@ -24,16 +24,16 @@ object Api {
   def palette: EventStream[Either[List[String], List[RGB]]] =
     fetch.get("/api/palette").recoverToEither.map {
       case Right((status, body)) if status < 300 => read[List[RGB]](body)
-      case Right((status, _))                    => Left(List(s"Couldn't read the song's palette (status $status)"))
-      case Left(failure)                         => Left(List(s"Couldn't reach the app: ${failure.getMessage}"))
+      case Right((status, _)) => Left(List(s"Couldn't read the song's palette (status $status)"))
+      case Left(failure) => Left(List(s"Couldn't reach the app: ${failure.getMessage}"))
     }
 
   /** The bridge's entertainment areas, music areas first. */
   def areas: EventStream[Either[List[String], List[MusicArea]]] =
     fetch.get("/api/areas").recoverToEither.map {
       case Right((status, body)) if status < 300 => read[List[MusicArea]](body)
-      case Right((status, _))                    => Left(List(s"Couldn't list the bridge's areas (status $status)"))
-      case Left(failure)                         => Left(List(s"Couldn't reach the app: ${failure.getMessage}"))
+      case Right((status, _)) => Left(List(s"Couldn't list the bridge's areas (status $status)"))
+      case Left(failure) => Left(List(s"Couldn't reach the app: ${failure.getMessage}"))
     }
 
   def save(next: LightShowConfig): EventStream[Either[List[String], SettingsView]] =
@@ -45,9 +45,9 @@ object Api {
 
   private def answer(response: EventStream[(Int, String)]): EventStream[Either[List[String], SettingsView]] =
     response.recoverToEither.map {
-      case Left(failure)                         => Left(List(s"Couldn't reach the app: ${failure.getMessage}"))
+      case Left(failure) => Left(List(s"Couldn't reach the app: ${failure.getMessage}"))
       case Right((status, body)) if status < 300 => read[SettingsView](body)
-      case Right((_, body))                      => read[SettingsProblems](body).flatMap(p => Left(p.problems))
+      case Right((_, body)) => read[SettingsProblems](body).flatMap(p => Left(p.problems))
     }
 
   private def read[A: Decoder](body: String): Either[List[String], A] =

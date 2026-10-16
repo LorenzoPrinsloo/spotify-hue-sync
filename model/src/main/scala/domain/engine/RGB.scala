@@ -16,19 +16,20 @@ case class RGB(r: ByteInt, g: ByteInt, b: ByteInt):
   def toVector: Vector[Int] = Vector(r, g, b)
 object RGB {
   type ByteInt = Int Refined Interval.Closed[0, 255]
-  given Codec[RGB] =
-    (uint16 :: uint16 :: uint16).xmap(
-      (r, g, b) => RGB(
+  given Codec[RGB] = (uint16 :: uint16 :: uint16).xmap(
+    (r, g, b) =>
+      RGB(
         Refined.unsafeApply(r >> 8),
         Refined.unsafeApply(g >> 8),
         Refined.unsafeApply(b >> 8)
       ),
-      rgb => (
+    rgb =>
+      (
         rgb.r.value << 8,
         rgb.g.value << 8,
         rgb.b.value << 8
       )
-    )
+  )
 
   given Show[RGB] = Show.show { c =>
     val colorBlock = s"\u001b[48;2;${c.r.value};${c.g.value};${c.b.value}m      \u001b[0m"

@@ -22,10 +22,10 @@ object LightRole {
     else Vector.tabulate(lights)(i => pattern(i % pattern.size))
 
   def parse(name: String): Option[LightRole] = name.trim.toLowerCase match {
-    case "pulse"            => Some(LightRole.Pulse)
-    case "rhythm"           => Some(LightRole.Rhythm)
+    case "pulse" => Some(LightRole.Pulse)
+    case "rhythm" => Some(LightRole.Rhythm)
     case "colour" | "color" => Some(LightRole.Colour)
-    case _                  => None
+    case _ => None
   }
 
   given Codec[LightRole] =

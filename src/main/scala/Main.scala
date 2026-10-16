@@ -14,7 +14,7 @@ import org.http4s.ember.client.EmberClientBuilder
 import org.http4s.client.middleware.FollowRedirect
 object Main extends IOApp {
   private val logger = Slf4jLogger.getLogger[IO]
-  
+
   private def controls(engine: SyncEngine[IO], lights: Lights[IO]): ShowControls[IO] =
     new ShowControls[IO] {
       def applyNow: IO[Unit] = engine.applyNow
@@ -26,7 +26,7 @@ object Main extends IOApp {
     val resources = for {
       config <- Resource.eval(AppConfig.load[IO](pureconfig.ConfigSource.default))
       tlsContext <- Resource.eval(TLSContext.Builder.forAsync[IO].insecure)
-      httpClient <- EmberClientBuilder.default[IO].withTLSContext(tlsContext).build.map {c => FollowRedirect(2)(c)}
+      httpClient <- EmberClientBuilder.default[IO].withTLSContext(tlsContext).build.map { c => FollowRedirect(2)(c) }
 
       spotify <- SpotifyClient.resource[IO](httpClient, config.spotify)
       hueClient = new HueClient[IO](config.hue.creds, httpClient)
@@ -35,14 +35,18 @@ object Main extends IOApp {
       lights <- Resource.eval(Lights.fromBridge[IO](hueClient))
       areas <- Resource.eval(lights.areas)
       area <- Resource.eval(MusicArea.choose(areas, config.lightShow.area, config.hue.zoneId).leftMap(new IllegalArgumentException(_)).liftTo[IO])
-      _ <- Resource.eval(logger.info(s"Entertainment areas on the bridge: ${areas.map(a => s"${a.name} (${a.lights} lights)").mkString(", ")}. Playing on ${area.name}."))
+      _ <- Resource.eval(logger.info(
+          s"Entertainment areas on the bridge: ${areas.map(a => s"${a.name} (${a.lights} lights)").mkString(", ")}. Playing on ${area.name}."
+        ))
       live <- Resource.eval(LiveSettings.make[IO](config.lightShow.copy(area = Some(area.name)), areas))
       channels <- Resource.eval(hueClient.getChannels(area.id))
       audio = config.lightShow.beatSource match {
-        case BeatSource.Audio   => BeatTracking.listen[IO](config.lightShow.audio.device, live.applied.map(TrackerSettings.from))
+        case BeatSource.Audio => BeatTracking.listen[IO](config.lightShow.audio.device, live.applied.map(TrackerSettings.from))
         case BeatSource.Spotify => fs2.Stream.empty
       }
-      _ <- Resource.eval(logger.info(s"Listening for the beat on '${config.lightShow.audio.device}'. If it never locks on, check that music is playing through it and that your terminal has microphone access.").whenA(config.lightShow.beatSource == BeatSource.Audio))
+      _ <- Resource.eval(logger.info(
+          s"Listening for the beat on '${config.lightShow.audio.device}'. If it never locks on, check that music is playing through it and that your terminal has microphone access."
+        ).whenA(config.lightShow.beatSource == BeatSource.Audio))
       engine <- Resource.eval(SyncEngine.make[IO](config, live, spotify, Zone(area.id, channels), lights, audio = audio))
       _ <-
         if (!config.ui.enabled) Resource.unit[IO]

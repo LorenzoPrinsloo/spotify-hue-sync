@@ -25,7 +25,7 @@ final class SettingsPage {
   private val waiting: Signal[Set[String]] =
     server.signal.combineWith(draft.signal).map {
       case (Some(view), Some(edited)) => ConfigSnippet.changes(view.applied, edited).map(_._1).toSet
-      case _                          => Set.empty
+      case _ => Set.empty
     }
 
   private def received(answer: Either[List[String], SettingsView]): Unit =
@@ -108,11 +108,11 @@ final class SettingsPage {
   }
 
   private def control(c: Control): HtmlElement = c match {
-    case Control.Area          => areaChoice
-    case Control.Roles         => roles
-    case Control.Reactions     => reactionsSwitch
-    case Control.Palette       => paletteChoice
-    case Control.SongPalette   => songColours
+    case Control.Area => areaChoice
+    case Control.Roles => roles
+    case Control.Reactions => reactionsSwitch
+    case Control.Palette => paletteChoice
+    case Control.SongPalette => songColours
     case Control.RestingColour => restingColour
     case Control.FixedSettings => fixedSettings
   }
@@ -134,7 +134,8 @@ final class SettingsPage {
             cls := "role",
             span(cls := "index", s"${index + 1}"),
             select(
-              controlled(value <-- role.map(_.name), onChange.mapToValue --> (name => LightRole.parse(name).foreach(r => setRoles(_.updated(index, r))))),
+              controlled(value <-- role.map(_.name),
+                onChange.mapToValue --> (name => LightRole.parse(name).foreach(r => setRoles(_.updated(index, r))))),
               LightRole.values.toList.map(r => option(value := r.name, r.name))
             ),
             button("Remove", disabled <-- rolesNow.map(_.size <= 1), onClick --> (_ => setRoles(_.patch(index, Nil, 1))))
@@ -152,7 +153,8 @@ final class SettingsPage {
       label(
         input(
           typ := "checkbox",
-          controlled(checked <-- draft.signal.map(_.exists(_.reactive.enabled)), onClick.mapToChecked --> (on => edit(c => c.copy(reactive = c.reactive.copy(enabled = on)))))
+          controlled(checked <-- draft.signal.map(_.exists(_.reactive.enabled)),
+            onClick.mapToChecked --> (on => edit(c => c.copy(reactive = c.reactive.copy(enabled = on)))))
         ),
         span("React to the music (and use the light roles)")
       )
@@ -202,7 +204,7 @@ final class SettingsPage {
       div(
         cls := "swatches",
         children <-- songPalette.signal.map {
-          case Nil     => List(span(cls := "help", "Shown once a song starts."))
+          case Nil => List(span(cls := "help", "Shown once a song starts."))
           case colours => colours.map(c => span(cls := "swatch", backgroundColor := c.hex, title := c.hex))
         }
       ),

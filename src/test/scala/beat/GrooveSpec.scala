@@ -9,11 +9,12 @@ class GrooveSpec extends ScalaCheckSuite {
   private val readingsPerStep = 6
 
   /** `bars` bars of kick power along the grid from `from` beats, with `power(slot)` on each sixteenth of the bar. */
-  private def play(groove: Groove, bars: Int, power: Int => Double, from: Double): Groove =
-    (0 until bars * Groove.Steps * readingsPerStep).foldLeft(groove) { (g, i) =>
-      val beats = from + i.toDouble / (readingsPerStep * Groove.StepsPerBeat)
-      g.at(beats, power(Groove.slot(Groove.stepAt(beats))))
-    }
+  private def play(groove: Groove, bars: Int, power: Int => Double, from: Double): Groove = (0 until bars * Groove.Steps * readingsPerStep).foldLeft(
+    groove
+  ) { (g, i) =>
+    val beats = from + i.toDouble / (readingsPerStep * Groove.StepsPerBeat)
+    g.at(beats, power(Groove.slot(Groove.stepAt(beats))))
+  }
 
   private def kicksOn(slots: Set[Int]): Int => Double = slot => if (slots(slot)) 1.0 else 0.05
 

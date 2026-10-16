@@ -87,7 +87,8 @@ class LightShowConfigSpec extends FunSuite {
   }
 
   test("analogous-complementary orders are both configurable") {
-    assertEquals(load("""light-show.palette = "analogous-complementary-interspersed"""").map(_.lightShow.palette), Right(PaletteType.AnalogousComplementary(Order.Interspersed)))
+    assertEquals(load("""light-show.palette = "analogous-complementary-interspersed"""").map(_.lightShow.palette),
+      Right(PaletteType.AnalogousComplementary(Order.Interspersed)))
   }
 
   test("the beat source and audio input can be configured") {

@@ -167,7 +167,9 @@ object BeatTracker {
 
   private def bestOffset(env: Array[Double], period: Double): (Double, Double, Int) = {
     val offsets = Iterator.iterate(0.0)(_ + 0.5).takeWhile(_ < period)
-    offsets.map { o => val (m, k) = gridMean(env, period, o); (o, m, k) }.maxBy(_._2)
+    offsets.map { o =>
+      val (m, k) = gridMean(env, period, o); (o, m, k)
+    }.maxBy(_._2)
   }
 
   /**
@@ -206,7 +208,7 @@ object BeatTracker {
       val measuredBpm = 60 * s.frameRate / period
       val bpm = previous match {
         case Some(p) if math.abs(measuredBpm - p.bpm) / p.bpm < TempoTolerance => 0.7 * p.bpm + 0.3 * measuredBpm
-        case _                                                                  => measuredBpm
+        case _ => measuredBpm
       }
       val beatFrames = 60 * s.frameRate / bpm
       val (_, gridLevel, _) = bestOffset(env, beatFrames)

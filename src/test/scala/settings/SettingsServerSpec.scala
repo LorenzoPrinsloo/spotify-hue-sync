@@ -13,8 +13,9 @@ class SettingsServerSpec extends CatsEffectSuite {
   private val hello = HttpRoutes.of[IO] { case GET -> Root / "hello" => Ok("hi") }
 
   test("serves the routes on the configured host and port, here one the system picks") {
-    (SettingsServer.resource[IO](UiConfig(host = "127.0.0.1", port = 0), hello), EmberClientBuilder.default[IO].build).tupled.use { (server, client) =>
-      client.expect[String](Uri.unsafeFromString(s"${server.baseUri}hello"))
+    (SettingsServer.resource[IO](UiConfig(host = "127.0.0.1", port = 0), hello), EmberClientBuilder.default[IO].build).tupled.use {
+      (server, client) =>
+        client.expect[String](Uri.unsafeFromString(s"${server.baseUri}hello"))
     }.assertEquals("hi")
   }
 

@@ -31,7 +31,7 @@ final class LiveSettings[F[_]: Concurrent] private (
   def update(next: LightShowConfig): F[Either[SettingsProblems, SettingsView]] =
     known.get.flatMap { areas =>
       LiveSettings.problems(fromFile, next, areas) match {
-        case Nil   => pending.set(next) *> view.map(Right(_))
+        case Nil => pending.set(next) *> view.map(Right(_))
         case found => Concurrent[F].pure(Left(SettingsProblems(found)))
       }
     }

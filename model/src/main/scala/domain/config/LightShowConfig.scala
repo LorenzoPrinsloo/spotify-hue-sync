@@ -40,9 +40,15 @@ object LightShowConfig {
       Option.when(c.audio.minBpm <= 0 || c.audio.maxBpm <= c.audio.minBpm)("audio.min-bpm must be positive and below audio.max-bpm"),
       Option.when(c.audio.device.trim.isEmpty)("audio.device can't be empty"),
       Option.when(c.audio.holdSeconds < 0)("audio.hold-seconds can't be negative"),
-      Option.when(c.reactive.quietest <= 0 || c.reactive.loudest < c.reactive.quietest)("reactive.quietest must be positive and no more than reactive.loudest"),
-      Option.when(c.reactive.flash < 0 || c.reactive.flash > 1 || c.reactive.sparkle < 0 || c.reactive.sparkle > 1)("reactive.flash and reactive.sparkle must be between 0 and 1"),
-      Option.when(c.reactive.flashDecayMs <= 0 || c.reactive.sparkleDecayMs <= 0)("reactive.flash-decay-ms and reactive.sparkle-decay-ms must be positive"),
+      Option.when(c.reactive.quietest <= 0 || c.reactive.loudest < c.reactive.quietest)(
+        "reactive.quietest must be positive and no more than reactive.loudest"
+      ),
+      Option.when(c.reactive.flash < 0 || c.reactive.flash > 1 || c.reactive.sparkle < 0 || c.reactive.sparkle > 1)(
+        "reactive.flash and reactive.sparkle must be between 0 and 1"
+      ),
+      Option.when(c.reactive.flashDecayMs <= 0 || c.reactive.sparkleDecayMs <= 0)(
+        "reactive.flash-decay-ms and reactive.sparkle-decay-ms must be positive"
+      ),
       Option.when(c.reactive.hitRatio <= 1 || c.reactive.sparkleRatio <= 1)("reactive.hit-ratio and reactive.sparkle-ratio must be above 1"),
       Option.when(c.reactive.roles.isEmpty)("reactive.roles needs at least one role"),
       Option.when(c.reactive.colourReach < 0)("reactive.colour-reach can't be negative"),
@@ -50,13 +56,15 @@ object LightShowConfig {
       Option.when(swell.attack < 0 || swell.sustain < 0)("reactive.colour-swell.attack and reactive.colour-swell.sustain can't be negative"),
       Option.when(swell.attack + swell.sustain >= 1)("reactive.colour-swell.attack + reactive.colour-swell.sustain must be less than 1"),
       Option.when(swell.decayCurve <= 0)("reactive.colour-swell.decay-curve must be positive"),
-      Option.when(swell.restLevel < 0 || swell.peakBoost < 0)("reactive.colour-swell.rest-level and reactive.colour-swell.peak-boost can't be negative")
+      Option.when(swell.restLevel < 0 || swell.peakBoost < 0)(
+        "reactive.colour-swell.rest-level and reactive.colour-swell.peak-boost can't be negative"
+      )
     ).flatten
   }
 
   def validate(c: LightShowConfig): Either[String, LightShowConfig] =
     problems(c) match {
-      case Nil   => Right(c)
+      case Nil => Right(c)
       case found => Left(found.mkString("; "))
     }
 }

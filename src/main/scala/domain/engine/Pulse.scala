@@ -39,6 +39,5 @@ object Pulse {
    * Brightness multiplier for an envelope level: `restLevel` at rest, `restLevel + peakBoost` at the peak, all scaled
    * by the music's `intensity` (1 when the show isn't reacting to live audio).
    */
-  def brightness(level: Double, s: PulseSettings, intensity: Double = 1.0): Double =
-    (s.restLevel + s.peakBoost * level) * intensity
+  def brightness(level: Double, s: PulseSettings, intensity: Double = 1.0): Double = (s.restLevel + s.peakBoost * level) * intensity
 }

@@ -270,7 +270,8 @@ class BeatTrackerSpec extends ScalaCheckSuite {
 
   test("the tracker takes its tempo range, hold and thresholds from the light show's settings") {
     import domain.config.{AudioSettings, LightShowConfig, ReactiveSettings}
-    val show = LightShowConfig(audio = AudioSettings(minBpm = 80, maxBpm = 150, holdSeconds = 4), reactive = ReactiveSettings(hitRatio = 1.3, sparkleRatio = 6))
+    val show = LightShowConfig(audio = AudioSettings(minBpm = 80, maxBpm = 150, holdSeconds = 4),
+      reactive = ReactiveSettings(hitRatio = 1.3, sparkleRatio = 6))
     val s = TrackerSettings.from(show)
     assertEquals((s.minBpm, s.maxBpm, s.holdSeconds, s.hitRatio, s.sparkleRatio), (80.0, 150.0, 4.0, 1.3, 6.0))
   }

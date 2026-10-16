@@ -55,6 +55,7 @@ case class Levels(
 }
 
 object Levels {
+
   /** Pitch follows the music over about this long: long enough to ride over single drum hits, short enough for a melody. */
   val PitchSeconds: Double = 0.4
 

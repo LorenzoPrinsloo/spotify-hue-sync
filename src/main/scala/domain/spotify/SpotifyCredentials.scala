@@ -7,7 +7,7 @@ import io.circe.Codec
  * These are the static credentials required to communicate with Spotify.
  */
 case class SpotifyCredentials(
-   clientId: String,
-   clientSecret: String,
-   refreshToken: String
- ) derives Codec.AsObject
+  clientId: String,
+  clientSecret: String,
+  refreshToken: String
+) derives Codec.AsObject

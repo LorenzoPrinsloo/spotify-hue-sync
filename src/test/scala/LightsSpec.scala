@@ -18,7 +18,7 @@ class LightsSpec extends CatsEffectSuite {
       case GET -> Root / "clip" / "v2" / "resource" / "entertainment_configuration" / "up" =>
         channelReads.update(_ + 1) *> Ok(areas)
       case GET -> Root / "clip" / "v2" / "resource" / "entertainment_configuration" => Ok(areas)
-      case GET -> Root / "clip" / "v2" / "resource" / _                             => Ok("""{ "data": [] }""")
+      case GET -> Root / "clip" / "v2" / "resource" / _ => Ok("""{ "data": [] }""")
     }.orNotFound)
     Lights.fromBridge[IO](new HueClient[IO](HueCredentials("10.0.0.2", "key", "00ff"), bridge))
   }

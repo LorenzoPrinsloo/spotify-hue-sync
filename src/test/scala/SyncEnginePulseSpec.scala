@@ -39,8 +39,8 @@ class SyncEnginePulseSpec extends ScalaCheckSuite {
     forAll(vivid, Gen.choose(-1000, 1000)) { (c, beat) =>
       val lit = SyncEngine.pulseFrame(Zone(zoneId, List(0)), Palette(Vector(c)), beat.toDouble, settings).updates.head.color
       degrees(hueDistance(hue(lit), hue(c))) < 2 &&
-        math.abs(saturation(lit) - saturation(c)) < 0.02 &&
-        math.abs(brightness(lit) - math.min(1.0, brightness(c) * 2.65)) <= 1.0 / 255 + 1e-6
+      math.abs(saturation(lit) - saturation(c)) < 0.02 &&
+      math.abs(brightness(lit) - math.min(1.0, brightness(c) * 2.65)) <= 1.0 / 255 + 1e-6
     }
   }
 
@@ -72,7 +72,7 @@ class SyncEnginePulseSpec extends ScalaCheckSuite {
   property("pulsesAt counts pulses at the given tempo") {
     forAll(Gen.choose(0L, 10000000L), Gen.choose(10.0, 240.0)) { (pos, bpm) =>
       math.abs(SyncEngine.pulsesAt(pos, bpm) - pos / (60000.0 / bpm)) < 1e-6 &&
-        math.abs(SyncEngine.pulsesAt(pos, 2 * bpm) - 2 * SyncEngine.pulsesAt(pos, bpm)) < 1e-6
+      math.abs(SyncEngine.pulsesAt(pos, 2 * bpm) - 2 * SyncEngine.pulsesAt(pos, bpm)) < 1e-6
     }
   }
 
@@ -127,9 +127,10 @@ class SyncEnginePulseSpec extends ScalaCheckSuite {
       val groove = Vector.tabulate(Groove.Steps)(i => if (i == step) 1.0 else 0.0)
       val on = bar * Groove.BeatsPerBar + step.toDouble / Groove.StepsPerBeat
       def colourAt(beats: Double) =
-        SyncEngine.pulseFrame(Zone(zoneId, List(0)), Palette(Vector(c)), 0.6, settings, Effects(roles = Vector(LightRole.Rhythm), rhythm = Some(Rhythm(groove, beats)))).updates.head.color
+        SyncEngine.pulseFrame(Zone(zoneId, List(0)), Palette(Vector(c)), 0.6, settings,
+          Effects(roles = Vector(LightRole.Rhythm), rhythm = Some(Rhythm(groove, beats)))).updates.head.color
       colourAt(on) == c.scaleBrightness(Pulse.brightness(1, settings)) &&
-        colourAt(on + Groove.BeatsPerBar / 2.0) == c.scaleBrightness(Pulse.brightness(0, settings))
+      colourAt(on + Groove.BeatsPerBar / 2.0) == c.scaleBrightness(Pulse.brightness(0, settings))
     }
   }
 
@@ -156,7 +157,7 @@ class SyncEnginePulseSpec extends ScalaCheckSuite {
     forAll(rgb, swells, Gen.choose(-500, 500)) { (c, swell, n) =>
       val peak = n * swell.beats
       colourAt(c, swell, peak) == c.scaleBrightness(Pulse.brightness(1, swell.shape)) &&
-        colourAt(c, swell, peak - swell.attack * swell.beats) == c.scaleBrightness(Pulse.brightness(0, swell.shape))
+      colourAt(c, swell, peak - swell.attack * swell.beats) == c.scaleBrightness(Pulse.brightness(0, swell.shape))
     }
   }
 

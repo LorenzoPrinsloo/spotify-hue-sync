@@ -133,7 +133,8 @@ object Sections {
 
   val colourLights: Section = Section(
     title = "Colour lights",
-    intro = "How the colour lights swell: a slow rise, a brief hold at the peak, then a fade. And how far they move along the palette as the music goes higher or lower.",
+    intro =
+      "How the colour lights swell: a slow rise, a brief hold at the peak, then a fade. And how far they move along the palette as the music goes higher or lower.",
     controls = Nil,
     sliders = List(
       Slider(

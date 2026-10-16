@@ -45,11 +45,13 @@ While it runs, the settings page at [http://127.0.0.1:7071](http://127.0.0.1:707
 ```sh
 sbt check   # lint, then test with coverage measured: what CI runs on every push
 sbt test    # tests only
-sbt fix     # apply Scalafix's rewrites
+sbt fix     # apply Scalafix's rewrites and format the code
 ```
 
 `sbt check` also measures test coverage with [scoverage](https://github.com/scoverage/sbt-scoverage) and fails if it drops below 90% of statements or 85% of branches overall, or below 70% of statements in any one file, so new code can't go untested behind the totals. The report is in `target/scala-3.9.0/scoverage-report/index.html`. The minimums are in `build.sbt`, along with the few classes left out of the measurement and why: `Main`, which only wires the app together, and the code that needs real hardware or a real network to run (the audio device, the DTLS socket to the bridge, and the stream joining the two). The settings page is tested in Node.js but not measured, since Scala 3 records coverage on the JVM only.
 
 [Scalafix](https://scalacenter.github.io/scalafix/) checks the code against the rules in `.scalafix.conf` (tests use `.scalafix.test.conf`): Scalafix's own rules, [xuwei-k's scalafix-rules](https://github.com/xuwei-k/scalafix-rules) and [Typelevel's](https://github.com/typelevel/typelevel-scalafix). They catch Scala 2 leftovers (`implicit`, `cats.implicits`), unsafe calls (`Option.get`, `isInstanceOf`, running IO outside the app's entry point) and simplifications such as `Option.when`. `sbt lint` fails on any error; most come with a rewrite that `sbt fix` applies.
+
+[scalafmt](https://scalameta.org/scalafmt/) formats the code and the sbt files with the settings in `.scalafmt.conf`. It keeps the existing line breaks and braces where it can and doesn't align, so a change only reformats the lines it touches. `sbt lint` fails if anything isn't formatted; `sbt fix` formats it.
 
 The settings page's tests run in Node.js, which needs to be installed. Property-based tests (munit + ScalaCheck) cover the colour theory, every palette type, the pulse envelope, the light roles, the beat tracker, kick pattern and pitch (against generated audio), the pause fade, config loading and validation, the settings page's API and sliders, and the Hue packet format. The Spotify and Hue clients are tested against fake HTTP servers, and the whole engine runs against a fake Spotify on Cats Effect's simulated clock.
