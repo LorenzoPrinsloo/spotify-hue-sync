@@ -26,10 +26,10 @@ ThisBuild / coverageMinimumBranchTotal := 85
 ThisBuild / coverageMinimumStmtPerFile := 70
 ThisBuild / coverageFailOnMinimum := true
 
-// `sbt fix` applies the rules' rewrites; `sbt lint` fails if anything is left; `sbt check` lints, then runs the tests
-// with coverage measured and fails below the minimums above. `sbt test` runs them without coverage.
-addCommandAlias("fix", "scalafixAll")
-addCommandAlias("lint", "scalafixAll --check")
+// `sbt fix` applies the Scalafix rewrites and the scalafmt formatting; `sbt lint` fails if anything is left; `sbt check`
+// lints, then runs the tests with coverage measured and fails below the minimums above. `sbt test` runs them without coverage.
+addCommandAlias("fix", ";scalafixAll ;scalafmtAll ;scalafmtSbt")
+addCommandAlias("lint", ";scalafixAll --check ;scalafmtCheckAll ;scalafmtSbtCheck")
 addCommandAlias("check", ";lint ;clean ;coverage ;test ;coverageAggregate ;coverageOff")
 
 lazy val lintSettings = Seq(
