@@ -25,6 +25,8 @@ class SyncEngineRunSpec extends CatsEffectSuite {
   private val track = TrackId("track-1")
   private def playing(trackId: String): String =
     s"""{ "progress_ms": 0, "is_playing": true, "item": { "id": "$trackId", "album": { "images": [ { "url": "cover" } ] } } }"""
+  private def playingWithoutAlbum(trackId: String): String =
+    s"""{ "progress_ms": 0, "is_playing": true, "item": { "id": "$trackId" } }"""
   private val resting = RGB.safe(30, 20, 8).get
 
   private def config(show: LightShowConfig): AppConfig =
@@ -56,7 +58,8 @@ class SyncEngineRunSpec extends CatsEffectSuite {
     seed: Long = 1L,
     audio: Stream[IO, AudioReading] = Stream.empty,
     trackAt: FiniteDuration => String = _ => "track-1",
-    pollFails: Boolean = false
+    pollFails: Boolean = false,
+    playingJson: String => String = playing
   )
 
   private def engine(setup: Setup, tempoCalls: Ref[IO, Int]): IO[(SyncEngine[IO], LiveSettings[IO])] =
@@ -66,7 +69,7 @@ class SyncEngineRunSpec extends CatsEffectSuite {
       app = HttpRoutes.of[IO] {
         case GET -> Root / "v1" / "me" / "player" =>
           if (setup.pollFails) InternalServerError("busy")
-          else IO.realTime.flatMap(now => if (now < setup.playingUntil) Ok(playing(setup.trackAt(now))) else NoContent())
+          else IO.realTime.flatMap(now => if (now < setup.playingUntil) Ok(setup.playingJson(setup.trackAt(now))) else NoContent())
         case GET -> Root / "v1" / "audio-features" / _ =>
           tempoCalls.update(_ + 1) *> setup.tempo
       }.orNotFound
@@ -311,6 +314,12 @@ class SyncEngineRunSpec extends CatsEffectSuite {
     run(Setup(pollFails = true), 4.seconds).map { (frames, _, _) =>
       assert(frames.size > 200, frames.size)
       assert(frames.forall((_, f) => isResting(f)))
+    }
+  }
+
+  test("a track without an album still plays the show") {
+    run(Setup(playingJson = playingWithoutAlbum), 4.seconds).map { (frames, _, _) =>
+      followsPlayback(between(frames, 1100.millis, 4.seconds))
     }
   }
 
