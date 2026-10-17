@@ -58,7 +58,12 @@ object Tls {
 
   def capturedLogs: Resource[IO, ListAppender[spi.ILoggingEvent]] =
     Resource.make(IO {
-      val appender = new ListAppender[spi.ILoggingEvent]
+      val appender = new ListAppender[spi.ILoggingEvent] {
+        override def append(e: spi.ILoggingEvent): Unit = {
+          e.prepareForDeferredProcessing()
+          super.append(e)
+        }
+      }
       appender.start()
       LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME).asInstanceOf[Logger].addAppender(appender)
       appender

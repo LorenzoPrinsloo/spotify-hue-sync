@@ -115,7 +115,7 @@ class SpotifyClientSpec extends CatsEffectSuite {
         case req @ GET -> Root / "v1" / "me" / "player" =>
           if (req.headers.get[Authorization].contains(signedIn)) Ok(playing) else rejected
       }.orNotFound
-      state <- new SpotifyClient[IO](Client.fromHttpApp(app), SpotifyCredentials("id", "secret", Some("refresh-0")), session, code).getPlaybackState
+      state <- new SpotifyClient[IO](Client.fromHttpApp(app), SpotifyCredentials("id", "secret"), session, code).getPlaybackState
       form <- exchanged.get
       stored <- session.get
     } yield {
@@ -134,7 +134,7 @@ class SpotifyClientSpec extends CatsEffectSuite {
         case GET -> Root / "authorize" => code.complete("code-1") *> Ok("signed in")
         case POST -> Root / "api" / "token" => BadRequest("""{ "error": "invalid_grant" }""")
       }.orNotFound
-      _ <- new SpotifyClient[IO](Client.fromHttpApp(app), SpotifyCredentials("id", "secret", Some("refresh-0")), session, code)
+      _ <- new SpotifyClient[IO](Client.fromHttpApp(app), SpotifyCredentials("id", "secret"), session, code)
         .getPlaybackState.intercept[RuntimeException]
       stored <- session.get
     } yield assertEquals(stored, None)
@@ -249,5 +249,189 @@ class SpotifyClientSpec extends CatsEffectSuite {
       assert(later.left.exists { case _: TimeoutException => true; case _ => false }, later.toString)
     }
     TestControl.executeEmbed(flow)
+  }
+
+  private case class TokenCall(grant: String, refreshToken: String, code: String)
+
+  private case class Rig(
+    spotify: SpotifyClient[IO],
+    session: Ref[IO, Option[SpotifySession]],
+    routes: HttpApp[IO],
+    tokenCalls: IO[List[TokenCall]],
+    authorizes: IO[Int]
+  ) {
+    def handCode: IO[Response[IO]] = routes.run(Request(Method.GET, uri"/callback?code=browser-code"))
+  }
+
+  private def rig(clientId: String, configured: Option[String], answer: IO[Response[IO]]): IO[Rig] =
+    for {
+      codes <- SignInCodes.make[IO]
+      session <- Ref.of[IO, Option[SpotifySession]](None)
+      calls <- Ref.of[IO, List[TokenCall]](Nil)
+      authorizes <- Ref.of[IO, Int](0)
+      fake = HttpRoutes.of[IO] {
+        case GET -> Root / "authorize" => authorizes.update(_ + 1) *> Ok("login")
+        case req @ POST -> Root / "api" / "token" =>
+          req.as[UrlForm].flatMap { form =>
+            val call = TokenCall(form.getFirstOrElse("grant_type", ""), form.getFirstOrElse("refresh_token", ""), form.getFirstOrElse("code", ""))
+            calls.update(_ :+ call) *>
+              (call match {
+                case TokenCall("refresh_token", "refresh-9", _) => renewedTo("renewed", None)
+                case TokenCall("refresh_token", _, _) => answer
+                case _ => renewedTo("signed-in", Some("refresh-9"))
+              })
+          }
+        case req @ GET -> Root / "v1" / "me" / "player" => playerFor(req)
+      }.orNotFound
+    } yield Rig(
+      new SpotifyClient[IO](Client.fromHttpApp(fake), SpotifyCredentials(clientId, "secret", configured), session, codes),
+      session,
+      SpotifyClient.callbackRoutes[IO](codes).orNotFound,
+      calls.get,
+      authorizes.get
+    )
+
+  private def browserSignIn(r: Rig): IO[Option[domain.spotify.PlaybackState]] =
+    for {
+      poll <- r.spotify.getPlaybackState.start
+      _ <- IO.sleep(1.second)
+      _ <- r.handCode
+      state <- poll.joinWithNever
+    } yield state
+
+  private def visits(appender: ch.qos.logback.core.read.ListAppender[ch.qos.logback.classic.spi.ILoggingEvent], clientId: String): Int =
+    Tls.logged(appender).count { e =>
+      e.getLoggerName == "client.SpotifyClient" && e.getFormattedMessage.startsWith("Please visit") && e.getFormattedMessage.contains(clientId)
+    }
+
+  private def infoLines(
+    appender: ch.qos.logback.core.read.ListAppender[ch.qos.logback.classic.spi.ILoggingEvent],
+    clientId: String,
+    message: String
+  ): Int =
+    Tls.logged(appender).count { e =>
+      e.getLoggerName == "client.SpotifyClient" && e.getLevel == Level.INFO && e.getFormattedMessage == message &&
+      e.getMDCPropertyMap.get("client_id") == clientId
+    }
+
+  private def warnings(appender: ch.qos.logback.core.read.ListAppender[ch.qos.logback.classic.spi.ILoggingEvent], clientId: String) =
+    Tls.logged(appender).filter { e =>
+      e.getLoggerName == "client.SpotifyClient" && e.getLevel == Level.WARN && e.getMDCPropertyMap.get("client_id") == clientId
+    }
+
+  private val loggedAtInfo = (Tls.capturedLogs, Tls.loggingAt("client.SpotifyClient", Level.INFO)).tupled
+
+  test("a valid configured refresh token signs in with one swap and never opens the browser") {
+    val id = "configured-valid"
+    val token = "token-valid"
+    loggedAtInfo.use { (appender, _) =>
+      val flow = for {
+        r <- rig(id, Some(token), renewedTo("signed-in", Some("refresh-9")))
+        state <- r.spotify.getPlaybackState
+        calls <- r.tokenCalls
+        authorizes <- r.authorizes
+      } yield (state, calls, authorizes)
+      TestControl.executeEmbed(flow).map { (state, calls, authorizes) =>
+        assert(state.exists(_.isPlaying), state.toString)
+        assertEquals(calls, List(TokenCall("refresh_token", token, "")))
+        assertEquals(authorizes, 0)
+        assertEquals(visits(appender, id), 0)
+        assertEquals(infoLines(appender, id, "Signed in to Spotify with the configured refresh token"), 1)
+        assertEquals(infoLines(appender, id, "Signed in to Spotify through the browser"), 0)
+      }
+    }
+  }
+
+  test("a rejected configured refresh token warns once without the token, then signs in through the browser") {
+    val id = "configured-rejected"
+    val token = "token-rejected"
+    loggedAtInfo.use { (appender, _) =>
+      val flow = for {
+        r <- rig(id, Some(token), BadRequest("""{"error":"invalid_grant"}"""))
+        state <- browserSignIn(r)
+        calls <- r.tokenCalls
+      } yield (state, calls)
+      TestControl.executeEmbed(flow).map { (state, calls) =>
+        assert(state.exists(_.isPlaying), state.toString)
+        assertEquals(calls.map(_.grant), List("refresh_token", "authorization_code"))
+        assertEquals(visits(appender, id), 1)
+        val warned = warnings(appender, id).map(_.getFormattedMessage)
+        assertEquals(warned.size, 1)
+        assert(warned.forall(_.startsWith("Spotify rejected the configured refresh token (status: 400")), warned.toString)
+        val texts = Tls.logged(appender).flatMap { e =>
+          e.getFormattedMessage :: e.getMDCPropertyMap.values.toArray.toList.map(_.toString) ::: Option(e.getThrowableProxy).map(_.getMessage).toList
+        }
+        assert(!texts.exists(_.contains(token)), texts.toString)
+      }
+    }
+  }
+
+  List(
+    ("answers 429", "configured-429", TooManyRequests("""{"error":"slow down"}"""), Status.TooManyRequests),
+    ("answers invalid_client", "configured-invalid-client", IO.pure(Response[IO](Status.Unauthorized).withEntity("""{"error":"invalid_client"}""")),
+      Status.Unauthorized),
+    ("answers 503", "configured-503", ServiceUnavailable("down"), Status.ServiceUnavailable)
+  ).foreach { (what, id, answer, status) =>
+    test(s"when Spotify $what to the configured refresh token the poll fails, no browser opens, and the next poll swaps again") {
+      val token = s"token-$id"
+      loggedAtInfo.use { (appender, _) =>
+        val flow = for {
+          r <- rig(id, Some(token), answer)
+          first <- r.spotify.getPlaybackState.attempt
+          stored <- r.session.get
+          second <- r.spotify.getPlaybackState.attempt
+          calls <- r.tokenCalls
+        } yield (first, second, stored, calls)
+        TestControl.executeEmbed(flow).map { (first, second, stored, calls) =>
+          List(first, second).foreach { outcome =>
+            assert(
+              outcome.left.exists {
+                case SpotifyTokenError.Failed("Refresh Token Exchange", s, _) => s == status
+                case _ => false
+              },
+              outcome.toString
+            )
+          }
+          assertEquals(stored, None)
+          assertEquals(calls, List.fill(2)(TokenCall("refresh_token", token, "")))
+          assertEquals(visits(appender, id), 0)
+        }
+      }
+    }
+  }
+
+  test("with no configured refresh token it goes straight to the browser sign-in") {
+    val id = "unconfigured-none"
+    loggedAtInfo.use { (appender, _) =>
+      val flow = for {
+        r <- rig(id, None, renewedTo("unused", None))
+        state <- browserSignIn(r)
+        calls <- r.tokenCalls
+      } yield (state, calls)
+      TestControl.executeEmbed(flow).map { (state, calls) =>
+        assert(state.exists(_.isPlaying), state.toString)
+        assertEquals(calls.map(_.grant), List("authorization_code"))
+        assertEquals(visits(appender, id), 1)
+        assertEquals(infoLines(appender, id, "Signed in to Spotify through the browser"), 1)
+        assertEquals(infoLines(appender, id, "Signed in to Spotify with the configured refresh token"), 0)
+      }
+    }
+  }
+
+  test("after a browser sign-in replaces a rejected token, renewing uses the new refresh token") {
+    val token = "token-ac5"
+    val flow = for {
+      r <- rig("configured-ac5", Some(token), BadRequest("""{"error":"invalid_grant"}"""))
+      _ <- browserSignIn(r)
+      renewed <- r.spotify.renew
+      calls <- r.tokenCalls
+    } yield (renewed, calls)
+    TestControl.executeEmbed(flow).map { (renewed, calls) =>
+      assertEquals(renewed, "renewed")
+      assertEquals(
+        calls,
+        List(TokenCall("refresh_token", token, ""), TokenCall("authorization_code", "", "browser-code"), TokenCall("refresh_token", "refresh-9", ""))
+      )
+    }
   }
 }

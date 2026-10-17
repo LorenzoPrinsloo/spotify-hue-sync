@@ -85,7 +85,7 @@ class SpotifyTlsEngineSpec extends CatsEffectSuite {
     }
   }
 
-  test("signing in on an untrusted certificate is logged as an error naming the authorize call") {
+  test("signing in on an untrusted certificate is logged as an error naming the refresh token exchange") {
     val spotify = Tls.server(HttpRoutes.of[IO] { case GET -> Root / "authorize" => Ok("login") }.orNotFound)
     (spotify, Tls.capturedLogs, HttpClients.resource[IO]).tupled.use { case ((port, seen), appender, clients) =>
       for {
@@ -100,7 +100,7 @@ class SpotifyTlsEngineSpec extends CatsEffectSuite {
         errors = Tls.logged(appender).filter(_.getLevel == Level.ERROR).map(_.getFormattedMessage)
       } yield {
         assertEquals(requests.size, 0)
-        assert(errors.exists(m => m.contains("Spotify Authorize failed") && m.contains("SSLHandshakeException")), errors.toString)
+        assert(errors.exists(m => m.contains("Spotify Refresh Token Exchange failed") && m.contains("SSLHandshakeException")), errors.toString)
       }
     }
   }
