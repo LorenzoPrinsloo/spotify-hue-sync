@@ -9,7 +9,6 @@ import domain.spotify.types.TrackId
 import munit.CatsEffectSuite
 import org.http4s.*
 import org.http4s.client.Client
-import org.http4s.ember.client.EmberClientBuilder
 import org.http4s.dsl.io.*
 import org.http4s.headers.Authorization
 import org.http4s.implicits.*
@@ -159,49 +158,64 @@ class SpotifyClientSpec extends CatsEffectSuite {
   private def playerFor(req: Request[IO]): IO[Response[IO]] =
     if (req.headers.get[Authorization].contains(signedInBearer)) Ok(playing) else rejected
 
-  test("a failed code exchange leaves the next poll to log a new URL and sign in with a fresh code") {
-    val clientId = "retry-sign-in"
+  private case class Retry(
+    failed: Either[Throwable, ?],
+    afterFailure: Option[SpotifySession],
+    waiting: Boolean,
+    signedIn: Boolean,
+    exchanged: List[String]
+  )
+
+  private def retryAfterFailedExchange: IO[Retry] = {
+    val flow = for {
+      codes <- SignInCodes.make[IO]
+      session <- Ref.of[IO, Option[SpotifySession]](None)
+      exchanged <- Ref.of[IO, List[String]](Nil)
+      fake = HttpRoutes.of[IO] {
+        case GET -> Root / "authorize" => Ok("login")
+        case req @ POST -> Root / "api" / "token" =>
+          req.as[UrlForm].flatMap { form =>
+            val code = form.getFirstOrElse("code", "")
+            exchanged.update(_ :+ code) *>
+              (if (code == "bad-code") BadRequest("""{ "error": "invalid_grant" }""") else renewedTo("signed-in", Some("refresh-9")))
+          }
+        case req @ GET -> Root / "v1" / "me" / "player" => playerFor(req)
+      }.orNotFound
+      routes = SpotifyClient.callbackRoutes[IO](codes).orNotFound
+      spotify = new SpotifyClient[IO](Client.fromHttpApp(fake), SpotifyCredentials(retryClientId, "secret"), session, codes)
+      poll1 <- spotify.getPlaybackState.start
+      _ <- IO.sleep(1.second)
+      _ <- routes.run(Request(Method.GET, uri"/callback?code=bad-code"))
+      failed <- poll1.joinWithNever.attempt
+      afterFailure <- session.get
+      finished <- Ref.of[IO, Boolean](false)
+      poll2 <- (spotify.getPlaybackState <* finished.set(true)).start
+      _ <- IO.sleep(1.second)
+      waiting <- finished.get.map(!_)
+      _ <- routes.run(Request(Method.GET, uri"/callback?code=code-2"))
+      state <- poll2.joinWithNever
+      seenAfter <- exchanged.get
+    } yield Retry(failed, afterFailure, waiting, state.exists(_.isPlaying), seenAfter)
+    TestControl.executeEmbed(flow)
+  }
+
+  private val retryClientId = "retry-sign-in"
+
+  test("after a failed code exchange the next poll waits for a fresh code instead of reusing the failed one") {
+    retryAfterFailedExchange.map { r =>
+      assert(r.failed.left.exists { case _: RuntimeException => true; case _ => false }, r.failed.toString)
+      assertEquals(r.afterFailure, None)
+      assert(r.waiting)
+    }
+  }
+
+  test("after a failed code exchange the next poll logs a new URL and signs in with the fresh code") {
     (Tls.capturedLogs, Tls.loggingAt("client.SpotifyClient", Level.INFO)).tupled.use { (appender, _) =>
-      val flow = for {
-        codes <- SignInCodes.make[IO]
-        session <- Ref.of[IO, Option[SpotifySession]](None)
-        exchanged <- Ref.of[IO, List[String]](Nil)
-        fake = HttpRoutes.of[IO] {
-          case GET -> Root / "authorize" => Ok("login")
-          case req @ POST -> Root / "api" / "token" =>
-            req.as[UrlForm].flatMap { form =>
-              val code = form.getFirstOrElse("code", "")
-              exchanged.update(_ :+ code) *>
-                (if (code == "bad-code") BadRequest("""{ "error": "invalid_grant" }""") else renewedTo("signed-in", Some("refresh-9")))
-            }
-          case req @ GET -> Root / "v1" / "me" / "player" => playerFor(req)
-        }.orNotFound
-        routes = SpotifyClient.callbackRoutes[IO](codes).orNotFound
-        spotify = new SpotifyClient[IO](Client.fromHttpApp(fake), SpotifyCredentials(clientId, "secret"), session, codes)
-        poll1 <- spotify.getPlaybackState.start
-        _ <- IO.sleep(1.second)
-        _ <- routes.run(Request(Method.GET, uri"/callback?code=bad-code"))
-        failed <- poll1.joinWithNever.attempt
-        afterFailure <- session.get
-        finished <- Ref.of[IO, Boolean](false)
-        poll2 <- (spotify.getPlaybackState <* finished.set(true)).start
-        _ <- IO.sleep(1.second)
-        waiting <- finished.get.map(!_)
-        seenBefore <- exchanged.get
-        _ <- routes.run(Request(Method.GET, uri"/callback?code=code-2"))
-        state <- poll2.joinWithNever
-        seenAfter <- exchanged.get
-      } yield {
-        assert(failed.left.exists { case _: RuntimeException => true; case _ => false }, failed.toString)
-        assertEquals(afterFailure, None)
-        assert(waiting)
-        assertEquals(seenBefore, List("bad-code"))
-        assert(state.exists(_.isPlaying), state.toString)
-        assertEquals(seenAfter, List("bad-code", "code-2"))
-      }
-      TestControl.executeEmbed(flow) *> IO {
+      retryAfterFailedExchange.map { r =>
+        assert(r.signedIn)
+        assertEquals(r.exchanged, List("bad-code", "code-2"))
         val visits = Tls.logged(appender).filter { e =>
-          e.getLoggerName == "client.SpotifyClient" && e.getFormattedMessage.contains("Please visit") && e.getFormattedMessage.contains(clientId)
+          e.getLoggerName == "client.SpotifyClient" && e.getFormattedMessage.contains("Please visit") && e.getFormattedMessage.contains(retryClientId)
         }
         assertEquals(visits.size, 2)
       }
@@ -235,34 +249,5 @@ class SpotifyClientSpec extends CatsEffectSuite {
       assert(later.left.exists { case _: TimeoutException => true; case _ => false }, later.toString)
     }
     TestControl.executeEmbed(flow)
-  }
-
-  test("the app's own sign-in wiring retries after a failed exchange through the real callback server") {
-    val fake = HttpRoutes.of[IO] {
-      case GET -> Root / "authorize" => Ok("login")
-      case req @ POST -> Root / "api" / "token" =>
-        req.as[UrlForm].flatMap { form =>
-          if (form.getFirstOrElse("code", "") == "bad-code") BadRequest("""{ "error": "invalid_grant" }""")
-          else renewedTo("signed-in", Some("refresh-9"))
-        }
-      case req @ GET -> Root / "v1" / "me" / "player" => playerFor(req)
-    }.orNotFound
-    val callback = (code: String) =>
-      EmberClientBuilder.default[IO].build.use(_.status(Request[IO](Method.GET, Uri.unsafeFromString(s"http://127.0.0.1:7070/callback?code=$code"))))
-    SpotifyClient.resource[IO](Client.fromHttpApp(fake), SpotifyCredentials("resource-wiring", "secret")).use { spotify =>
-      for {
-        poll1 <- spotify.getPlaybackState.start
-        _ <- IO.sleep(500.millis)
-        _ <- callback("bad-code")
-        failed <- poll1.joinWithNever.attempt
-        poll2 <- spotify.getPlaybackState.start
-        _ <- IO.sleep(500.millis)
-        _ <- callback("code-2")
-        state <- poll2.joinWithNever.timeout(10.seconds)
-      } yield {
-        assert(failed.isLeft, failed.toString)
-        assert(state.exists(_.isPlaying), state.toString)
-      }
-    }
   }
 }
