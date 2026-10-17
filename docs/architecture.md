@@ -297,7 +297,7 @@ sequenceDiagram
 - Everything runs in `IO` through tagless-final `F[_]` constraints (`Async`, `Network`).
 - Shared state lives in Cats Effect primitives:
   - `Ref` for the Spotify session (access and refresh tokens), the current song's show, the pending and applied settings (`LiveSettings`), and each area's channels once read (`Lights`)
-  - `Deferred` to hand the OAuth code from the callback server to the client
+  - `SignInCodes` to hand the OAuth code from the callback server to the client (one code per sign-in attempt)
   - `SignallingRef` for the latest playback state shared by the poller and the renderer
 - The poller and the renderer are two fs2 streams merged into one, so stopping the app cancels both.
 - `Hotswap` holds the entertainment session on the current area, so moving to another area closes the old session before opening the new one, and stopping the app closes the last.
