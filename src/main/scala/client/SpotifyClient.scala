@@ -34,8 +34,12 @@ class SpotifyClient[F[_]: Async: Network](
   client: Client[F],
   creds: SpotifyCredentials,
   session: Ref[F, Option[SpotifySession]],
-  authCodeDeferred: Deferred[F, String]
+  codes: SignInCodes[F]
 ) extends Http4sClientDsl[F]:
+
+  /** Signs in through the browser at most once, with the code `authCode` is completed with. */
+  def this(client: Client[F], creds: SpotifyCredentials, session: Ref[F, Option[SpotifySession]], authCode: Deferred[F, String]) =
+    this(client, creds, session, SignInCodes.once[F](authCode))
 
   private val authUri = uri"https://accounts.spotify.com/api/token"
   private val apiUri = uri"https://api.spotify.com/v1"
@@ -73,7 +77,7 @@ class SpotifyClient[F[_]: Async: Network](
       _ <- naming("Authorize")(client.run(Request[F](Method.GET, Uri.unsafeFromString(authUrl)).putHeaders(Header.Raw(ci"Cookie",
               s"sp_dc=${sys.env.getOrElse("SPOTIFY_SP_DC", "")}")))
           .use(_.body.compile.drain))
-      code <- authCodeDeferred.get
+      code <- codes.attempt.flatten
       authHeader = Authorization(BasicCredentials(creds.clientId, creds.clientSecret))
       form = UrlForm(
         "grant_type" -> "authorization_code",
@@ -166,24 +170,24 @@ class SpotifyClient[F[_]: Async: Network](
 
 object SpotifyClient:
 
-  /** Where Spotify sends the browser back after sign-in: hands the code it carries to `deferred`. */
-  def callbackRoutes[F[_]: Async](deferred: Deferred[F, String]): HttpRoutes[F] = {
+  /** Where Spotify sends the browser back after sign-in: hands the code it carries to the sign-in waiting for it. */
+  def callbackRoutes[F[_]: Async](codes: SignInCodes[F]): HttpRoutes[F] = {
     val dsl = new org.http4s.dsl.Http4sDsl[F] {}
     import dsl.*
     HttpRoutes.of[F] {
       case GET -> Root / "callback" :? CodeMatcher(code) =>
-        deferred.complete(code) *> Ok("Success! Return to your terminal.")
+        codes.hand(code) *> Ok("Success! Return to your terminal.")
     }
   }
 
-  def serverResource[F[_]: Async: Network](deferred: Deferred[F, String]): Resource[F, org.http4s.server.Server] =
-    EmberServerBuilder.default[F].withHost(ipv4"127.0.0.1").withPort(port"7070").withHttpApp(callbackRoutes(deferred).orNotFound).build
+  def serverResource[F[_]: Async: Network](codes: SignInCodes[F]): Resource[F, org.http4s.server.Server] =
+    EmberServerBuilder.default[F].withHost(ipv4"127.0.0.1").withPort(port"7070").withHttpApp(callbackRoutes[F](codes).orNotFound).build
 
   def resource[F[_]: Async: Network](client: Client[F], creds: SpotifyCredentials): Resource[F, SpotifyClient[F]] =
     for
       session <- Resource.eval(Ref.of[F, Option[SpotifySession]](None))
-      authCodeDeferred <- Resource.eval(Deferred[F, String])
-      _ <- serverResource(authCodeDeferred)
-    yield new SpotifyClient[F](client, creds, session, authCodeDeferred)
+      codes <- Resource.eval(Deferred[F, String]).map(SignInCodes.once[F])
+      _ <- serverResource(codes)
+    yield new SpotifyClient[F](client, creds, session, codes)
 
   object CodeMatcher extends QueryParamDecoderMatcher[String]("code")

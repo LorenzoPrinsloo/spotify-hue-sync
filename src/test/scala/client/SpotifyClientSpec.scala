@@ -137,7 +137,7 @@ class SpotifyClientSpec extends CatsEffectSuite {
   test("the callback hands the sign-in code over, and nothing else counts as a callback") {
     for {
       code <- Deferred[IO, String]
-      routes = SpotifyClient.callbackRoutes[IO](code).orNotFound
+      routes = SpotifyClient.callbackRoutes[IO](SignInCodes.once(code)).orNotFound
       answered <- routes.run(Request(Method.GET, uri"/callback?code=abc&state=xyz"))
       handed <- code.get
       without <- routes.run(Request(Method.GET, uri"/callback"))
