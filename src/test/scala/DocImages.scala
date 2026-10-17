@@ -46,7 +46,7 @@ object DocImages {
   private def palette(mode: PaletteType): Palette = Palette.random(mode)(using fixedBase).get
 
   private def hex(c: RGB): String = f"#${c.r.value}%02x${c.g.value}%02x${c.b.value}%02x"
-  private def hsb(c: RGB): Array[Float] = Color.RGBtoHSB(c.r.value, c.g.value, c.b.value, null)
+  private def hsb(c: RGB): Array[Float] = Color.RGBtoHSB(c.r.value, c.g.value, c.b.value, new Array[Float](3))
   private def fmt(d: Double): String = String.format(java.util.Locale.ROOT, "%.2f", d)
 
   private def svg(width: Int, height: Int)(body: String): String =
