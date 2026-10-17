@@ -20,7 +20,7 @@ Credentials are read from environment variables. Copy `.env.example` to `.env`, 
 |---|---|
 | `SPOTIFY_CLIENT_ID` | Client ID of your Spotify developer app |
 | `SPOTIFY_CLIENT_SECRET` | Client secret of your Spotify developer app |
-| `SPOTIFY_REFRESH_TOKEN` | Refresh token for your Spotify account |
+| `SPOTIFY_REFRESH_TOKEN` | Optional. Refresh token to start from; without it, or if Spotify rejects it, you sign in through the browser |
 | `SPOTIFY_SP_DC` | Optional. Spotify web session cookie, only used for the first authorisation |
 | `HUE_BRIDGE_ADDRESS` | IP address of your Hue bridge |
 | `HUE_USERNAME` | Hue application key |

@@ -45,14 +45,23 @@ class SpotifyTlsSpec extends CatsEffectSuite {
       }.orNotFound)
     }
 
-  private def spotify(client: Client[IO], session: Option[SpotifySession], code: Deferred[IO, String]): IO[SpotifyClient[IO]] =
+  private val unconfigured = SpotifyCredentials("id", "secret")
+
+  private def spotify(
+    client: Client[IO],
+    session: Option[SpotifySession],
+    code: Deferred[IO, String],
+    creds: SpotifyCredentials = unconfigured
+  ): IO[SpotifyClient[IO]] =
     Ref.of[IO, Option[SpotifySession]](session).map { ref =>
-      new SpotifyClient[IO](client, SpotifyCredentials("id", "secret", Some("refresh")), ref, code)
+      new SpotifyClient[IO](client, creds, ref, code)
     }
 
-  private def untrusted[A](port: Int, session: Option[SpotifySession])(use: SpotifyClient[IO] => IO[A]): IO[Either[Throwable, A]] =
+  private def untrusted[A](port: Int, session: Option[SpotifySession], creds: SpotifyCredentials = unconfigured)(
+    use: SpotifyClient[IO] => IO[A]
+  ): IO[Either[Throwable, A]] =
     HttpClients.resource[IO].use { clients =>
-      Deferred[IO, String].flatMap(code => spotify(Tls.redirectTo(port)(clients.spotify), session, code)).flatMap(use).attempt
+      Deferred[IO, String].flatMap(code => spotify(Tls.redirectTo(port)(clients.spotify), session, code, creds)).flatMap(use).attempt
     }.timeout(10.seconds)
 
   private def trusted[A](port: Int, session: Option[SpotifySession], code: Deferred[IO, String])(use: SpotifyClient[IO] => IO[A]): IO[A] =
@@ -78,10 +87,10 @@ class SpotifyTlsSpec extends CatsEffectSuite {
     }
   }
 
-  test("signing in against an untrusted certificate sends neither the cookie nor the client secret") {
+  test("signing in against an untrusted certificate sends neither the refresh token nor the client secret") {
     fake().use { (port, seen) =>
-      untrusted(port, None)(_.getPlaybackState).flatMap(r =>
-        seen.map(s => (assertTlsFailure(r), assertNames(r, "Authorize"), assertEquals(s.size, 0)))
+      untrusted(port, None, SpotifyCredentials("id", "secret", Some("refresh")))(_.getPlaybackState).flatMap(r =>
+        seen.map(s => (assertTlsFailure(r), assertNames(r, "Refresh Token Exchange"), assertEquals(s.size, 0)))
       )
     }
   }

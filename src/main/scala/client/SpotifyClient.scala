@@ -98,7 +98,23 @@ class SpotifyClient[F[_]: Async: Network](
         Async[F].pure
       )
       _ <- session.set(Some(SpotifySession(resp.access_token, refresh)))
+      _ <- logger.info("Signed in to Spotify through the browser")
     yield resp.access_token
+
+  /**
+   * Starts a session from the configured refresh token, falling back to the browser sign-in when there is none or
+   * Spotify answers that it's no good (invalid_grant).
+   */
+  def signIn: F[String] =
+    creds.configuredRefreshToken.fold(initialAuth) { token =>
+      refreshWith("Refresh Token Exchange", token)
+        .flatTap(_ => logger.info("Signed in to Spotify with the configured refresh token"))
+        .recoverWith { case SpotifyTokenError.Rejected(_, status, _) =>
+          logger.warn(Map("client_id" -> creds.clientId))(
+            s"Spotify rejected the configured refresh token (status: $status); signing in through the browser instead"
+          ) *> initialAuth
+        }
+    }
 
   /**
    * Helper to always get a valid token.
@@ -106,7 +122,7 @@ class SpotifyClient[F[_]: Async: Network](
   def getOrRefresh: F[String] =
     session.get.flatMap:
       case Some(s) => Async[F].pure(s.accessToken)
-      case None => initialAuth
+      case None => signIn
 
   /**
    * Swaps the refresh token for a new access token, keeping the refresh token Spotify sends back, if any.

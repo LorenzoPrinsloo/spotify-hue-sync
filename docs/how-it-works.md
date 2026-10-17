@@ -21,7 +21,7 @@ sequenceDiagram
     App->>App: store both in a Ref
 ```
 
-- The first call to Spotify triggers the sign-in. The app logs the authorize URL; opening it in a browser completes the flow.
+- The first call to Spotify triggers the sign-in. If `SPOTIFY_REFRESH_TOKEN` is set, the app swaps it for an access token (`POST /api/token` with `grant_type=refresh_token`) and no browser is needed. If it is unset, or Spotify answers `invalid_grant`, the app logs the authorize URL; opening it in a browser completes the flow. Any other failure of the swap fails that poll, and the next poll tries again.
 - If `SPOTIFY_SP_DC` is set, the app also requests the authorize URL with that session cookie, which can complete the consent step without a browser.
 - A failed code exchange fails that poll. The next poll logs a new URL to approve, and no restart is needed.
 - The callback server listens only on `127.0.0.1:7070`, so it is not reachable from other machines.

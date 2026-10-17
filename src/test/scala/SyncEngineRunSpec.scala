@@ -2,7 +2,8 @@ import cats.effect.{Deferred, IO, Ref}
 import beat.{AudioReading, BeatState, Hit}
 import cats.effect.testkit.TestControl
 import fs2.Stream
-import client.SpotifyClient
+import client.{SignInCodes, SpotifyClient}
+import org.http4s.implicits.*
 import domain.config.*
 import domain.engine.{LightRole, Palette, PaletteType, Pulse, RGB}
 import settings.LiveSettings
@@ -320,5 +321,49 @@ class SyncEngineRunSpec extends CatsEffectSuite {
       assert(checked.size > 100)
       checked.foreach((t, f) => assertEquals(f.updates, spotifyFrame(t, show, settings).updates, s"at $t"))
     }
+  }
+
+  private def signingIn(configured: Option[String], answer: IO[Response[IO]]): IO[List[Frame]] =
+    TestControl.executeEmbed {
+      for {
+        codes <- SignInCodes.make[IO]
+        session <- Ref.of[IO, Option[SpotifySession]](None)
+        app = HttpRoutes.of[IO] {
+          case req @ POST -> Root / "api" / "token" =>
+            req.as[UrlForm].flatMap { form =>
+              if (form.getFirstOrElse("grant_type", "") == "refresh_token") answer
+              else Ok("""{ "access_token": "signed-in", "token_type": "Bearer", "expires_in": 3600, "scope": "s", "refresh_token": "refresh-9" }""")
+            }
+          case req @ GET -> Root / "v1" / "me" / "player" =>
+            if (req.headers.get[headers.Authorization].exists(_.credentials.renderString.endsWith("signed-in"))) Ok(playing("track-1"))
+            else IO.pure(Response[IO](Status.Unauthorized))
+          case GET -> Root / "v1" / "audio-features" / _ => Ok("""{ "tempo": 128.0 }""")
+        }.orNotFound
+        spotify = new SpotifyClient[IO](Client.fromHttpApp(app), SpotifyCredentials("id", "secret", configured), session, codes)
+        show = LightShowConfig(palette = PaletteType.Triadic, pulse = PulseSettings(restLevel = 1.0, peakBoost = 0.0))
+        live <- LiveSettings.make[IO](show)
+        e <- SyncEngine.make[IO](config(show), live, spotify, zone, lights, new Random(7L), Stream.empty)
+        callback = SpotifyClient.callbackRoutes[IO](codes).orNotFound
+        handing = IO.sleep(1500.millis) *> callback.run(Request(Method.GET, uri"/callback?code=browser-code"))
+        frames <- handing.background.use(_ => e.run.evalMap(f => IO.monotonic.map(_ -> f)).interruptAfter(5.seconds).compile.toList)
+      } yield frames.collect { case (t, f) if t > 2500.millis => f }
+    }
+
+  private def followsPlayback(frames: List[Frame]): Unit = {
+    assert(frames.nonEmpty)
+    assert(frames.exists(f => !isResting(f)))
+    assert(frames.forall(f => f.updates.map(_.id) == zone.channels))
+  }
+
+  test("with a valid configured refresh token the lights follow playback without a browser") {
+    signingIn(Some("token"), Ok("""{ "access_token": "signed-in", "token_type": "Bearer", "expires_in": 3600, "scope": "s" }""")).map(followsPlayback)
+  }
+
+  test("with a rejected configured refresh token the lights follow playback after the browser sign-in") {
+    signingIn(Some("token"), BadRequest("""{"error":"invalid_grant"}""")).map(followsPlayback)
+  }
+
+  test("with no configured refresh token the lights follow playback after the browser sign-in") {
+    signingIn(None, Ok("unused")).map(followsPlayback)
   }
 }
