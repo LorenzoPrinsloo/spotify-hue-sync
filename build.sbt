@@ -103,6 +103,7 @@ lazy val root = project
     // The whole suite runs with the cookie variable set, so tests can show it never leaves the app.
     Test / fork := true,
     Test / envVars += "SPOTIFY_SP_DC" -> "sp-dc-sentinel",
+    Test / envVars += "SPOTIFY_TOKEN_FILE" -> (target.value / "test-refresh-token" / "refresh-token").getAbsolutePath,
 
     scalacOptions ++= Seq(
       "-deprecation",
