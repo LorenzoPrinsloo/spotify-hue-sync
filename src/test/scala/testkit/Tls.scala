@@ -35,7 +35,7 @@ object Tls {
     }
 
   def causes(e: Throwable): List[Throwable] =
-    Iterator.iterate(e)(_.getCause).takeWhile(_ != null).take(20).toList
+    Iterator.unfold[Throwable, Option[Throwable]](Some(e))(_.map(t => (t, Option(t.getCause)))).take(20).toList
 
   def isTlsFailure(e: Throwable): Boolean = causes(e).exists {
     case _: SSLException => true

@@ -49,7 +49,8 @@ class DtlsEmitter[F[_]: Async](creds: HueCredentials):
           .flatTap { _ =>
             Async[F].blocking {
               val context = new AddressEndpointContext(destination)
-              val data = RawData.outbound(bits.toByteArray, context, null, false)
+              // Californium's Java API takes null for "no message callback".
+              val data = RawData.outbound(bits.toByteArray, context, null, false) // scalafix:ok DisableSyntax.null
               connector.send(data)
             }
           }

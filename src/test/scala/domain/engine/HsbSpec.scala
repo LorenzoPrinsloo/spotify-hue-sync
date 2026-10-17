@@ -13,7 +13,7 @@ class HsbSpec extends ScalaCheckSuite {
 
   property("RGB to HSB gives exactly what java.awt gives") {
     forAll(channel, channel, channel) { (r, g, b) =>
-      Hsb.fromRgb(r, g, b).toList == Color.RGBtoHSB(r, g, b, null).toList
+      Hsb.fromRgb(r, g, b).toList == Color.RGBtoHSB(r, g, b, new Array[Float](3)).toList
     }
   }
 
@@ -26,7 +26,7 @@ class HsbSpec extends ScalaCheckSuite {
 
   test("greys, black and white match java.awt both ways") {
     (0 to 255).foreach { v =>
-      assertEquals(Hsb.fromRgb(v, v, v).toList, Color.RGBtoHSB(v, v, v, null).toList)
+      assertEquals(Hsb.fromRgb(v, v, v).toList, Color.RGBtoHSB(v, v, v, new Array[Float](3)).toList)
       val c = Color.getHSBColor(0.3f, 0.0f, v / 255.0f)
       assertEquals(Hsb.toRgb(0.3f, 0.0f, v / 255.0f), (c.getRed, c.getGreen, c.getBlue))
     }
