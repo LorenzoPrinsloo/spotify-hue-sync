@@ -24,7 +24,7 @@ Credentials are read from environment variables. Copy `.env.example` to `.env`, 
 | `SPOTIFY_SP_DC` | Optional. Spotify web session cookie, only used for the first authorisation |
 | `HUE_BRIDGE_ADDRESS` | IP address of your Hue bridge |
 | `HUE_USERNAME` | Hue application key |
-| `HUE_PSK` | Hue entertainment client key |
+| `HUE_PSK` | Hue entertainment client key, 32 hex digits |
 | `HUE_ZONE_ID` | Optional. ID of the entertainment area to play on; `light-show.area` picks one by name instead, and with only one music area on the bridge neither is needed |
 
 To pulse on the actual beat, route your audio through [BlackHole](https://github.com/ExistentialAudio/BlackHole) and set `light-show.beat-source = "audio"`; the app then detects the beat live (see [Live beat detection](docs/how-it-works.md#live-beat-detection) for setup).

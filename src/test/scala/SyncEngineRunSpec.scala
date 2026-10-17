@@ -6,7 +6,7 @@ import client.SpotifyClient
 import domain.config.*
 import domain.engine.{LightRole, Palette, PaletteType, Pulse, RGB}
 import settings.LiveSettings
-import domain.hue.{Frame, HueCredentials, MusicArea, Zone}
+import domain.hue.{Frame, HueCredentials, Psk, MusicArea, Zone}
 import domain.spotify.{SpotifyCredentials, SpotifySession}
 import domain.spotify.types.TrackId
 import munit.CatsEffectSuite
@@ -29,7 +29,7 @@ class SyncEngineRunSpec extends CatsEffectSuite {
   private def config(show: LightShowConfig): AppConfig =
     AppConfig(
       SpotifyCredentials("id", "secret", "refresh"),
-      HueConfig(HueCredentials("10.0.0.2", "user", "00ff"), Some(zone.id)),
+      HueConfig(HueCredentials("10.0.0.2", "user", Psk.parse("00112233445566778899aabbccddeeff").toOption.get), Some(zone.id)),
       pollingIntervalMs = 1000,
       lightShow = show
     )

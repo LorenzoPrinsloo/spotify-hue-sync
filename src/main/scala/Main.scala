@@ -12,6 +12,8 @@ import fs2.io.net.tls.TLSContext
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 import org.http4s.ember.client.EmberClientBuilder
 import org.http4s.client.middleware.FollowRedirect
+import pureconfig.ConfigSource
+import pureconfig.error.ConfigReaderException
 object Main extends IOApp {
   private val logger = Slf4jLogger.getLogger[IO]
 
@@ -22,9 +24,11 @@ object Main extends IOApp {
       def palette: IO[Vector[RGB]] = engine.palette.map(_.fold(Vector.empty)(_.colors))
     }
 
-  override def run(args: List[String]): IO[ExitCode] = {
+  override def run(args: List[String]): IO[ExitCode] = start(ConfigSource.default)
+
+  def start(source: ConfigSource): IO[ExitCode] = {
     val resources = for {
-      config <- Resource.eval(AppConfig.load[IO](pureconfig.ConfigSource.default))
+      config <- Resource.eval(AppConfig.load[IO](source))
       tlsContext <- Resource.eval(TLSContext.Builder.forAsync[IO].insecure)
       httpClient <- EmberClientBuilder.default[IO].withTLSContext(tlsContext).build.map { c => FollowRedirect(2)(c) }
 
@@ -57,6 +61,8 @@ object Main extends IOApp {
 
     resources.use { (hueClient, emitter, engine) =>
       engine.run.through(EntertainmentStream.toBridge(hueClient, emitter)).compile.drain.as(ExitCode.Success)
+    }.recoverWith { case e: ConfigReaderException[?] =>
+      logger.error(e.failures.prettyPrint()).as(ExitCode.Error)
     }
   }
 }

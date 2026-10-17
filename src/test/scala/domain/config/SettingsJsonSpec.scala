@@ -26,7 +26,7 @@ class SettingsJsonSpec extends ScalaCheckSuite {
 
   private val required =
     """spotify { client-id = "id", client-secret = "secret", refresh-token = "refresh" }
-      |hue { zone-id = "zone", creds { address = "10.0.0.2", username = "user", psk = "00ff" } }
+      |hue { zone-id = "zone", creds { address = "10.0.0.2", username = "user", psk = "00112233445566778899aabbccddeeff" } }
       |""".stripMargin
 
   property("the copied config loads back as the same settings") {

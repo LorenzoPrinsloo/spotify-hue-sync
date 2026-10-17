@@ -1,6 +1,6 @@
 import cats.effect.{IO, Ref}
 import client.HueClient
-import domain.hue.{HueCredentials, Zone}
+import domain.hue.{HueCredentials, Psk, Zone}
 import munit.CatsEffectSuite
 import org.http4s.*
 import org.http4s.client.Client
@@ -20,7 +20,7 @@ class LightsSpec extends CatsEffectSuite {
       case GET -> Root / "clip" / "v2" / "resource" / "entertainment_configuration" => Ok(areas)
       case GET -> Root / "clip" / "v2" / "resource" / _ => Ok("""{ "data": [] }""")
     }.orNotFound)
-    Lights.fromBridge[IO](new HueClient[IO](HueCredentials("10.0.0.2", "key", "00ff"), bridge))
+    Lights.fromBridge[IO](new HueClient[IO](HueCredentials("10.0.0.2", "key", Psk.parse("00112233445566778899aabbccddeeff").toOption.get), bridge))
   }
 
   test("an area's lights are found by its name, ignoring case, and read from the bridge only once") {
