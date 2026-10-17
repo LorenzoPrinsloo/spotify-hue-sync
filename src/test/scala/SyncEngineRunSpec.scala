@@ -341,7 +341,6 @@ class SyncEngineRunSpec extends CatsEffectSuite {
               if (form.getFirstOrElse("grant_type", "") == "refresh_token") answer
               else Ok("""{ "access_token": "signed-in", "token_type": "Bearer", "expires_in": 3600, "scope": "s", "refresh_token": "refresh-9" }""")
             }
-          case GET -> Root / "authorize" => Ok("login")
           case req @ GET -> Root / "v1" / "me" / "player" =>
             if (req.headers.get[headers.Authorization].exists(_.credentials.renderString.endsWith("signed-in"))) Ok(playing("track-1"))
             else IO.pure(Response[IO](Status.Unauthorized))

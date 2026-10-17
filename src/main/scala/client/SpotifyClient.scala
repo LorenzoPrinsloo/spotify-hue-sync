@@ -12,7 +12,6 @@ import org.http4s.headers.Authorization
 import org.http4s.client.dsl.Http4sClientDsl
 import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.implicits.*
-import org.typelevel.ci.CIStringSyntax
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 import com.comcast.ip4s.{ipv4, port}
 
@@ -63,6 +62,10 @@ class SpotifyClient[F[_]: Async: Network](
         case _ => false
       }
 
+  /**
+   * Logs the authorize URL, waits for the browser to bring the code back to the callback server, and keeps the refresh
+   * token Spotify sends with the exchange.
+   */
   def initialAuth: F[String] =
     val redirectUri = "http://127.0.0.1:7070/callback"
     val scopes = List("user-read-playback-state", "user-read-currently-playing").mkString("%20")
@@ -73,11 +76,6 @@ class SpotifyClient[F[_]: Async: Network](
     for
       waitForCode <- codes.attempt
       _ <- logger.info(s"Please visit: $authUrl")
-      // With a valid session cookie this lands on the callback with the code; otherwise it's Spotify's login page, and
-      // the code comes when the authorize URL is opened in a browser. Either way the page itself isn't needed.
-      _ <- naming("Authorize")(client.run(Request[F](Method.GET, Uri.unsafeFromString(authUrl)).putHeaders(Header.Raw(ci"Cookie",
-              s"sp_dc=${sys.env.getOrElse("SPOTIFY_SP_DC", "")}")))
-          .use(_.body.compile.drain))
       code <- waitForCode
       authHeader = Authorization(BasicCredentials(creds.clientId, creds.clientSecret))
       form = UrlForm(

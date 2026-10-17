@@ -9,6 +9,8 @@ import org.http4s.*
 import org.http4s.client.Client
 import org.http4s.dsl.io.*
 import org.http4s.headers.Authorization
+import org.http4s.implicits.*
+import org.typelevel.ci.CIStringSyntax
 import testkit.Tls
 
 import scala.concurrent.duration.*
@@ -29,11 +31,9 @@ class SpotifyTlsSpec extends CatsEffectSuite {
   private def assertNames[A](result: Either[Throwable, A], call: String): Unit =
     assert(result.left.exists({ case SpotifyTlsFailure(`call`, cause) => Tls.isTlsFailure(cause); case _ => false }), result.toString)
 
-  private def fake(code: Option[Deferred[IO, String]] = None, firstTokenRejected: Boolean = false): Resource[IO, (Int, IO[List[Request[IO]]])] =
+  private def fake(firstTokenRejected: Boolean = false): Resource[IO, (Int, IO[List[Request[IO]]])] =
     Resource.eval(Ref.of[IO, Int](0)).flatMap { playerCalls =>
       Tls.server(HttpRoutes.of[IO] {
-        case GET -> Root / "authorize" =>
-          code.traverse_(_.complete("the-code")) *> Ok("login")
         case POST -> Root / "api" / "token" => Ok(token)
         case req @ GET -> Root / "v1" / "me" / "player" =>
           playerCalls.updateAndGet(_ + 1).flatMap { n =>
@@ -104,14 +104,10 @@ class SpotifyTlsSpec extends CatsEffectSuite {
   test("the code exchange fails and sends no client secret to an untrusted certificate") {
     fake().use { (port, seen) =>
       HttpClients.resource[IO].use { clients =>
-        val authorizeAnswered = Client[IO] { req =>
-          if (req.uri.path.renderString == "/authorize") Resource.pure(Response[IO](Status.Ok))
-          else Tls.redirectTo(port)(clients.spotify).run(req)
-        }
         for {
           code <- Deferred[IO, String]
           _ <- code.complete("the-code")
-          client <- spotify(authorizeAnswered, None, code)
+          client <- spotify(Tls.redirectTo(port)(clients.spotify), None, code)
           r <- client.getPlaybackState.attempt
           s <- seen
         } yield (assertTlsFailure(r), assertNames(r, "Code Exchange"), assertEquals(s.size, 0))
@@ -121,8 +117,9 @@ class SpotifyTlsSpec extends CatsEffectSuite {
 
   test("signing in over a trusted certificate exchanges the code and polls with the new token") {
     Deferred[IO, String].flatMap { code =>
-      fake(Some(code)).use { (port, seen) =>
+      fake().use { (port, seen) =>
         for {
+          _ <- SpotifyClient.callbackRoutes[IO](SignInCodes.once(code)).orNotFound.run(Request(Method.GET, uri"/callback?code=the-code"))
           state <- trusted(port, None, code)(_.getPlaybackState)
           requests <- seen
           form <- requests.find(_.method == Method.POST).traverse(_.as[UrlForm])
@@ -132,6 +129,8 @@ class SpotifyTlsSpec extends CatsEffectSuite {
           assertEquals(form.map(_.getFirstOrElse("grant_type", "")), Some("authorization_code"))
           assertEquals(form.map(_.getFirstOrElse("code", "")), Some("the-code"))
           assertEquals(player.flatMap(_.headers.get[Authorization]), List(fresh))
+          assert(requests.forall(_.headers.get(ci"Cookie").isEmpty), requests.toString)
+          assert(!requests.exists(_.uri.path.renderString == "/authorize"), requests.toString)
         }
       }
     }

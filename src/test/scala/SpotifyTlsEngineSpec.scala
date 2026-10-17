@@ -86,7 +86,7 @@ class SpotifyTlsEngineSpec extends CatsEffectSuite {
   }
 
   test("signing in on an untrusted certificate is logged as an error naming the refresh token exchange") {
-    val spotify = Tls.server(HttpRoutes.of[IO] { case GET -> Root / "authorize" => Ok("login") }.orNotFound)
+    val spotify = Tls.server(HttpApp.notFound[IO])
     (spotify, Tls.capturedLogs, HttpClients.resource[IO]).tupled.use { case ((port, seen), appender, clients) =>
       for {
         session <- Ref.of[IO, Option[SpotifySession]](None)
