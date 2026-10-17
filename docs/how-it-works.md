@@ -369,7 +369,7 @@ The [roadmap](roadmap.md) tracks fixes for these.
 - **Pitch is where the sound is centred, not which notes are played.** A melody moving up raises it, but so does a brighter sound coming in, and two chords in the same range look the same.
 - **The settings page has no password.** On the default `ui.host` only this computer can open it; opened to the home network, anyone on it can change the lights (though not see any credentials).
 - **One area at a time.** The bridge streams to one entertainment area at once, and an area holds at most 10 lights, so lights from rooms that don't fit in one area can't all follow the music together.
-- **Certificate checks are off.** The Hue bridge serves a self-signed certificate, so the app's HTTP client is built without certificate verification. That client is shared, so Spotify calls skip verification too. A separate client for the bridge would keep verification on for Spotify.
+- **The Hue bridge's certificate is not verified.** The bridge serves a self-signed certificate, so the client that talks to it accepts any certificate. Spotify calls use a separate client that verifies certificates against the system trust store.
 
 ## Regenerating the images
 

@@ -2,10 +2,6 @@
 
 What's still to do, roughly in priority order. Tick items off as they land.
 
-## Fixes
-
-- [ ] **Keep certificate checks on for Spotify.** The HTTP client skips certificate verification so it can reach the Hue bridge, which has a self-signed certificate. Spotify calls share that client, so they skip verification too. Give the bridge its own client.
-
 ## Sign-in
 
 - [ ] **Replace the `sp_dc` cookie with the standard browser flow.** The app already logs the authorize URL and runs the callback server, so the cookie request can go. This also removes the most sensitive secret from the setup.

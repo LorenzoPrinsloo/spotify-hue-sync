@@ -1,17 +1,14 @@
 import cats.effect.*
 import cats.effect.{ExitCode, IOApp}
 import cats.effect.kernel.Resource
-import client.{DtlsEmitter, EntertainmentStream, HueClient, SpotifyClient}
+import client.{DtlsEmitter, EntertainmentStream, HttpClients, HueClient, SpotifyClient}
 import cats.syntax.all.*
 import beat.{BeatTracking, TrackerSettings}
 import domain.config.{AppConfig, BeatSource}
 import domain.hue.{MusicArea, Zone}
 import domain.engine.RGB
 import settings.{LiveSettings, SettingsRoutes, SettingsServer, ShowControls}
-import fs2.io.net.tls.TLSContext
 import org.typelevel.log4cats.slf4j.Slf4jLogger
-import org.http4s.ember.client.EmberClientBuilder
-import org.http4s.client.middleware.FollowRedirect
 import pureconfig.ConfigSource
 import pureconfig.error.ConfigReaderException
 object Main extends IOApp {
@@ -29,11 +26,10 @@ object Main extends IOApp {
   def start(source: ConfigSource): IO[ExitCode] = {
     val resources = for {
       config <- Resource.eval(AppConfig.load[IO](source))
-      tlsContext <- Resource.eval(TLSContext.Builder.forAsync[IO].insecure)
-      httpClient <- EmberClientBuilder.default[IO].withTLSContext(tlsContext).build.map { c => FollowRedirect(2)(c) }
+      clients <- HttpClients.resource[IO]
 
-      spotify <- SpotifyClient.resource[IO](httpClient, config.spotify)
-      hueClient = new HueClient[IO](config.hue.creds, httpClient)
+      spotify <- SpotifyClient.resource[IO](clients.spotify, config.spotify)
+      hueClient = new HueClient[IO](config.hue.creds, clients.bridge)
       emitter = new DtlsEmitter[IO](config.hue.creds)
 
       lights <- Resource.eval(Lights.fromBridge[IO](hueClient))
