@@ -20,7 +20,8 @@ Credentials are read from environment variables. Copy `.env.example` to `.env`, 
 |---|---|
 | `SPOTIFY_CLIENT_ID` | Client ID of your Spotify developer app |
 | `SPOTIFY_CLIENT_SECRET` | Client secret of your Spotify developer app |
-| `SPOTIFY_REFRESH_TOKEN` | Optional. The app starts from this refresh token without a browser sign-in, and signs in through the browser when it is empty or Spotify rejects it |
+| `SPOTIFY_REFRESH_TOKEN` | Optional. The app starts from this refresh token without a browser sign-in when no refresh token has been saved yet, and signs in through the browser when it is empty or Spotify rejects it |
+| `SPOTIFY_TOKEN_FILE` | Optional. Where the app saves the refresh token; overrides `spotify.token-file`. Empty counts as unset. See [The saved refresh token](#the-saved-refresh-token) |
 | `HUE_BRIDGE_ADDRESS` | IP address of your Hue bridge |
 | `HUE_USERNAME` | Hue application key |
 | `HUE_PSK` | Hue entertainment client key, 32 hex digits |
@@ -29,6 +30,16 @@ Credentials are read from environment variables. Copy `.env.example` to `.env`, 
 To pulse on the actual beat, route your audio through [BlackHole](https://github.com/ExistentialAudio/BlackHole) and set `light-show.beat-source = "audio"`; the app then detects the beat live (see [Live beat detection](docs/how-it-works.md#live-beat-detection) for setup).
 
 The light show (palette type, beat source, pulse shape, resting colour and more) is configured under `light-show`. The defaults and a description of each setting are in `src/main/resources/reference.conf`; override them in `application.conf`. See [How it works: Configuration](docs/how-it-works.md#7-configuration).
+
+## The saved refresh token
+
+After a sign-in, and whenever Spotify sends a new refresh token, the app saves the newest one to a file, so the next start needs no browser and no `SPOTIFY_REFRESH_TOKEN`.
+
+- By default the file is `$XDG_CONFIG_HOME/spotify-hue-sync/refresh-token`, or `~/.config/spotify-hue-sync/refresh-token` when `XDG_CONFIG_HOME` is unset.
+- To move it, set `spotify.token-file` in `application.conf` or the `SPOTIFY_TOKEN_FILE` variable. The variable wins when both are set.
+- The saved token beats `SPOTIFY_REFRESH_TOKEN`. If Spotify rejects it, the app deletes the file and falls back to `SPOTIFY_REFRESH_TOKEN`, then to the browser sign-in.
+- To switch token or account, delete the file: the app then uses `SPOTIFY_REFRESH_TOKEN` if it is set, and otherwise signs in through the browser.
+- The file is owner-only (mode 0600, in a directory of mode 0700 if the app created it). The app tightens it if it finds it readable by others.
 
 ## Running
 
