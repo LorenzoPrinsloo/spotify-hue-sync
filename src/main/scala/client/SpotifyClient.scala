@@ -98,7 +98,7 @@ class SpotifyClient[F[_]: Async: Network](
         Async[F].pure
       )
       _ <- session.set(Some(SpotifySession(resp.access_token, refresh)))
-      _ <- logger.info("Signed in to Spotify through the browser")
+      _ <- logger.info(Map("client_id" -> creds.clientId))("Signed in to Spotify through the browser")
     yield resp.access_token
 
   /**
@@ -108,7 +108,7 @@ class SpotifyClient[F[_]: Async: Network](
   def signIn: F[String] =
     creds.configuredRefreshToken.fold(initialAuth) { token =>
       refreshWith("Refresh Token Exchange", token)
-        .flatTap(_ => logger.info("Signed in to Spotify with the configured refresh token"))
+        .flatTap(_ => logger.info(Map("client_id" -> creds.clientId))("Signed in to Spotify with the configured refresh token"))
         .recoverWith { case SpotifyTokenError.Rejected(_, status, _) =>
           logger.warn(Map("client_id" -> creds.clientId))(
             s"Spotify rejected the configured refresh token (status: $status); signing in through the browser instead"

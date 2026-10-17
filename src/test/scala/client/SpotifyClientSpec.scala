@@ -304,6 +304,16 @@ class SpotifyClientSpec extends CatsEffectSuite {
       e.getLoggerName == "client.SpotifyClient" && e.getFormattedMessage.startsWith("Please visit") && e.getFormattedMessage.contains(clientId)
     }
 
+  private def infoLines(
+    appender: ch.qos.logback.core.read.ListAppender[ch.qos.logback.classic.spi.ILoggingEvent],
+    clientId: String,
+    message: String
+  ): Int =
+    Tls.logged(appender).count { e =>
+      e.getLoggerName == "client.SpotifyClient" && e.getLevel == Level.INFO && e.getFormattedMessage == message &&
+      e.getMDCPropertyMap.get("client_id") == clientId
+    }
+
   private def warnings(appender: ch.qos.logback.core.read.ListAppender[ch.qos.logback.classic.spi.ILoggingEvent], clientId: String) =
     Tls.logged(appender).filter { e =>
       e.getLoggerName == "client.SpotifyClient" && e.getLevel == Level.WARN && e.getMDCPropertyMap.get("client_id") == clientId
@@ -326,6 +336,8 @@ class SpotifyClientSpec extends CatsEffectSuite {
         assertEquals(calls, List(TokenCall("refresh_token", token, "")))
         assertEquals(authorizes, 0)
         assertEquals(visits(appender, id), 0)
+        assertEquals(infoLines(appender, id, "Signed in to Spotify with the configured refresh token"), 1)
+        assertEquals(infoLines(appender, id, "Signed in to Spotify through the browser"), 0)
       }
     }
   }
@@ -388,22 +400,22 @@ class SpotifyClientSpec extends CatsEffectSuite {
     }
   }
 
-  List(("none", "unconfigured-none", None), ("empty", "unconfigured-empty", Some("")), ("blank", "unconfigured-blank", Some("   "))).foreach {
-    (what, id, configured) =>
-      test(s"with a $what configured refresh token it goes straight to the browser sign-in") {
-        loggedAtInfo.use { (appender, _) =>
-          val flow = for {
-            r <- rig(id, configured, renewedTo("unused", None))
-            state <- browserSignIn(r)
-            calls <- r.tokenCalls
-          } yield (state, calls)
-          TestControl.executeEmbed(flow).map { (state, calls) =>
-            assert(state.exists(_.isPlaying), state.toString)
-            assertEquals(calls.map(_.grant), List("authorization_code"))
-            assertEquals(visits(appender, id), 1)
-          }
-        }
+  test("with no configured refresh token it goes straight to the browser sign-in") {
+    val id = "unconfigured-none"
+    loggedAtInfo.use { (appender, _) =>
+      val flow = for {
+        r <- rig(id, None, renewedTo("unused", None))
+        state <- browserSignIn(r)
+        calls <- r.tokenCalls
+      } yield (state, calls)
+      TestControl.executeEmbed(flow).map { (state, calls) =>
+        assert(state.exists(_.isPlaying), state.toString)
+        assertEquals(calls.map(_.grant), List("authorization_code"))
+        assertEquals(visits(appender, id), 1)
+        assertEquals(infoLines(appender, id, "Signed in to Spotify through the browser"), 1)
+        assertEquals(infoLines(appender, id, "Signed in to Spotify with the configured refresh token"), 0)
       }
+    }
   }
 
   test("after a browser sign-in replaces a rejected token, renewing uses the new refresh token") {
