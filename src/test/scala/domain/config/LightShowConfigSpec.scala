@@ -28,6 +28,14 @@ class LightShowConfigSpec extends FunSuite {
     assertEquals(load().map(_.ui), Right(UiConfig()))
   }
 
+  test("spotify.token-file is read into the credentials") {
+    assertEquals(load("spotify.token-file = \"/x\"").map(_.spotify.tokenFile), Right(Some("/x")))
+  }
+
+  test("spotify.token-file is none when not configured") {
+    assertEquals(load().map(_.spotify.tokenFile), Right(None))
+  }
+
   test("the light-show section is optional and defaults to the original behaviour") {
     assertEquals(load().map(_.lightShow), Right(LightShowConfig()))
     assertEquals(LightShowConfig().palette, PaletteType.Analogous)

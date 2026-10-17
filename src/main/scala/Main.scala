@@ -1,7 +1,8 @@
 import cats.effect.*
 import cats.effect.{ExitCode, IOApp}
 import cats.effect.kernel.Resource
-import client.{DtlsEmitter, EntertainmentStream, HttpClients, HueClient, SpotifyClient}
+import cats.effect.std.Env
+import client.{DtlsEmitter, EntertainmentStream, HttpClients, HueClient, SpotifyClient, TokenFile, TokenStore}
 import cats.syntax.all.*
 import beat.{BeatTracking, TrackerSettings}
 import domain.config.{AppConfig, BeatSource}
@@ -28,7 +29,9 @@ object Main extends IOApp {
       config <- Resource.eval(AppConfig.load[IO](source))
       clients <- HttpClients.resource[IO]
 
-      spotify <- SpotifyClient.resource[IO](clients.spotify, config.spotify)
+      env <- Resource.eval(Env[IO].entries.map(_.toMap))
+      store <- Resource.eval(TokenStore.at[IO](TokenFile.locate(config.spotify.tokenFile, env)))
+      spotify <- SpotifyClient.resource[IO](clients.spotify, config.spotify, store)
       hueClient = new HueClient[IO](config.hue.creds, clients.bridge)
       emitter = new DtlsEmitter[IO](config.hue.creds)
 

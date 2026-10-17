@@ -43,10 +43,7 @@ class PskSpec extends ScalaCheckSuite {
 
   property("the rejection names HUE_PSK and never echoes the input") {
     forAll(hexN(31)) { s =>
-      Psk.parse(s) match {
-        case Left(m) => m.contains("HUE_PSK") && m.contains("32 hex digits") && !m.contains(s)
-        case Right(_) => false
-      }
+      Psk.parse(s).fold(m => m.contains("HUE_PSK") && m.contains("32 hex digits") && !m.contains(s), _ => false)
     }
   }
 
