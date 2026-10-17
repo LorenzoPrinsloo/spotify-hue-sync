@@ -4,6 +4,7 @@ import munit.ScalaCheckSuite
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
 import scala.util.Random
+import testkit.Colours
 
 class PaletteSpec extends ScalaCheckSuite {
 
@@ -60,6 +61,31 @@ class PaletteSpec extends ScalaCheckSuite {
   property("an interspersed palette alternates between the two triads") {
     forAll { (seed: Long) =>
       generate(PaletteType.AnalogousComplementary(Order.Interspersed), seed).exists(p => p.colors(2).compliment == Some(p.colors(3)))
+    }
+  }
+
+  property("a random palette is the palette built from the seed's random base colour") {
+    forAll { (seed: Long) =>
+      expectedSizes.keys.forall { t =>
+        Palette.random(t)(using new Random(seed)) == RGB.random(using new Random(seed)).flatMap(Palette.from(_, t))
+      }
+    }
+  }
+
+  property("from builds each palette type around the base colour") {
+    forAll(Colours.vivid) { base =>
+      val comp = base.compliment.get
+      val expected: Map[PaletteType, Vector[RGB]] = Map(
+        PaletteType.Complementary -> Vector(base, comp),
+        PaletteType.Analogous -> base.analogous.toVector,
+        PaletteType.Monochromatic -> base.monochromatic.toVector,
+        PaletteType.Triadic -> base.triadic.toVector,
+        PaletteType.Tetradic -> base.tetradic.toVector,
+        PaletteType.AnalogousComplementary(Order.Flat) -> (base.analogous ++ comp.analogous).toVector,
+        PaletteType.AnalogousComplementary(Order.Interspersed) ->
+          Vector(base.analogous, comp.analogous).transpose.flatten
+      )
+      expectedSizes.keys.forall(t => Palette.from(base, t).map(_.colors) == expected.get(t))
     }
   }
 
