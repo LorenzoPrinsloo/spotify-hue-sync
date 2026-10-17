@@ -74,14 +74,12 @@ class SyncEngine[F[_]: Async] private (
 
   /** The cover's base colour, if the setting is on and the cover arrives in time and has one. Any failure is logged and gives None. */
   private def coverBase(trackId: TrackId, cover: Option[String], settings: LightShowConfig): F[Option[RGB]] =
-    cover.filter(_ => settings.albumCoverColours) match {
-      case None => Async[F].pure(None)
-      case Some(url) =>
-        covers.baseColour(url).start.flatMap { fiber =>
-          fiber.joinWithNever
-            .onCancel(fiber.cancel.start.void)
-            .timeoutTo(SyncEngine.CoverWait, Async[F].raiseError[Option[RGB]](CoverError.TimedOut(url, SyncEngine.CoverWait)))
-        }.handleErrorWith { case NonFatal(err) => coverFailure(trackId, url, err).as(None) }
+    cover.filter(_ => settings.albumCoverColours).fold(Async[F].pure(Option.empty[RGB])) { url =>
+      covers.baseColour(url).start.flatMap { fiber =>
+        fiber.joinWithNever
+          .onCancel(fiber.cancel.start.void)
+          .timeoutTo(SyncEngine.CoverWait, Async[F].raiseError[Option[RGB]](CoverError.TimedOut(url, SyncEngine.CoverWait)))
+      }.handleErrorWith { case NonFatal(err) => coverFailure(trackId, url, err).as(None) }
     }
 
   /** The lights to play `settings` on: the area they name, or else the ones `before` played on (or the first zone). */

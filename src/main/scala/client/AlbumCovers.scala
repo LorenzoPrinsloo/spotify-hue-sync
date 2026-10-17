@@ -36,12 +36,7 @@ object AlbumCovers {
         private val logger = Slf4jLogger.getLogger[F]
 
         def baseColour(url: String): F[Option[RGB]] =
-          cache.get.flatMap { known =>
-            known.get(url) match {
-              case Some(colour) => Async[F].pure(colour)
-              case None => read(url)
-            }
-          }
+          cache.get.flatMap(_.get(url).fold(read(url))(Async[F].pure))
 
         private def read(url: String): F[Option[RGB]] =
           for {

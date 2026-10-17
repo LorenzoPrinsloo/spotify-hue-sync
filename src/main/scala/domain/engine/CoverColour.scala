@@ -1,5 +1,8 @@
 package domain.engine
 
+import cats.Monoid
+import cats.syntax.all.*
+
 /**
  * How a song's base colour is read from its album cover's pixels. Vivid pixels are grouped by hue into `HueBins` bins;
  * a bin counts together with `WindowBins` neighbours on each side, wrapping round 0°/360°, so a colour lying across a
@@ -38,13 +41,16 @@ object CoverColour {
   def hueBin(c: RGB): Int =
     Math.floorMod(math.floor(c.hsb(0).toDouble * HueBins).toInt, HueBins)
 
-  private case class Sums(count: Int, sin: Double, cos: Double, saturation: Double, brightness: Double, vividness: Double) {
-    def +(o: Sums): Sums =
-      Sums(count + o.count, sin + o.sin, cos + o.cos, saturation + o.saturation, brightness + o.brightness, vividness + o.vividness)
-  }
+  private case class Sums(count: Int, sin: Double, cos: Double, saturation: Double, brightness: Double, vividness: Double)
 
   private object Sums {
     val zero: Sums = Sums(0, 0.0, 0.0, 0.0, 0.0, 0.0)
+
+    given Monoid[Sums] = Monoid.instance(
+      zero,
+      (a, o) =>
+        Sums(a.count + o.count, a.sin + o.sin, a.cos + o.cos, a.saturation + o.saturation, a.brightness + o.brightness, a.vividness + o.vividness)
+    )
 
     def of(c: RGB): Sums = {
       val hsb = c.hsb
@@ -59,9 +65,9 @@ object CoverColour {
    */
   def base(pixels: Seq[RGB]): Option[RGB] = {
     val total = pixels.size
-    val perBin = pixels.filter(isVivid).groupMapReduce(hueBin)(Sums.of)(_ + _)
+    val perBin = pixels.filter(isVivid).groupMapReduce(hueBin)(Sums.of)(_ |+| _)
     val windows = (0 until HueBins).map { k =>
-      (-WindowBins to WindowBins).map(d => perBin.getOrElse(Math.floorMod(k + d, HueBins), Sums.zero)).reduce(_ + _)
+      (-WindowBins to WindowBins).map(d => perBin.getOrElse(Math.floorMod(k + d, HueBins), Sums.zero)).toList.combineAll
     }
     windows
       .filter(w => w.count > 0 && w.count.toDouble / total >= MinShare)
