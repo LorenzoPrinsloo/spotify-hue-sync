@@ -34,8 +34,12 @@ class SpotifyClient[F[_]: Async: Network](
   client: Client[F],
   creds: SpotifyCredentials,
   session: Ref[F, Option[SpotifySession]],
-  authCodeDeferred: Deferred[F, String]
+  codes: SignInCodes[F]
 ) extends Http4sClientDsl[F]:
+
+  /** Signs in through the browser at most once, with the code `authCode` is completed with. */
+  def this(client: Client[F], creds: SpotifyCredentials, session: Ref[F, Option[SpotifySession]], authCode: Deferred[F, String]) =
+    this(client, creds, session, SignInCodes.once[F](authCode))
 
   private val authUri = uri"https://accounts.spotify.com/api/token"
   private val apiUri = uri"https://api.spotify.com/v1"
@@ -73,7 +77,7 @@ class SpotifyClient[F[_]: Async: Network](
       _ <- naming("Authorize")(client.run(Request[F](Method.GET, Uri.unsafeFromString(authUrl)).putHeaders(Header.Raw(ci"Cookie",
               s"sp_dc=${sys.env.getOrElse("SPOTIFY_SP_DC", "")}")))
           .use(_.body.compile.drain))
-      code <- authCodeDeferred.get
+      code <- codes.attempt.flatten
       authHeader = Authorization(BasicCredentials(creds.clientId, creds.clientSecret))
       form = UrlForm(
         "grant_type" -> "authorization_code",
@@ -89,7 +93,10 @@ class SpotifyClient[F[_]: Async: Network](
             Async[F].raiseError(new RuntimeException(s"Spotify Error ${errorRes.status}: $body"))
         }
       })
-      _ <- session.set(Some(SpotifySession(resp.access_token, resp.refresh_token.getOrElse(creds.refreshToken))))
+      refresh <- resp.refresh_token.fold(Async[F].raiseError[String](new RuntimeException("Spotify sent no refresh token with the code exchange")))(
+        Async[F].pure
+      )
+      _ <- session.set(Some(SpotifySession(resp.access_token, refresh)))
     yield resp.access_token
 
   /**
@@ -106,17 +113,28 @@ class SpotifyClient[F[_]: Async: Network](
    */
   def renew: F[String] =
     for
-      refresh <- session.get.map(_.fold(creds.refreshToken)(_.refreshToken))
-      req = Request[F](Method.POST, authUri)
-        .withEntity(UrlForm("grant_type" -> "refresh_token", "refresh_token" -> refresh))
-        .putHeaders(Authorization(BasicCredentials(creds.clientId, creds.clientSecret)))
-      resp <- naming("Renew")(client.expectOr[SpotifyToken](req) { errorRes =>
+      token <- session.get.flatMap {
+        case Some(s) => refreshWith("Renew", s.refreshToken)
+        case None => creds.configuredRefreshToken.fold(initialAuth)(refreshWith("Renew", _))
+      }
+      _ <- logger.info("Renewed the Spotify access token")
+    yield token
+
+  /**
+   * Swaps `refresh` for a new access token and stores the session, keeping `refresh` if Spotify sends no new one.
+   * A failure is a `SpotifyTokenError` named `call`.
+   */
+  private def refreshWith(call: String, refresh: String): F[String] =
+    val req = Request[F](Method.POST, authUri)
+      .withEntity(UrlForm("grant_type" -> "refresh_token", "refresh_token" -> refresh))
+      .putHeaders(Authorization(BasicCredentials(creds.clientId, creds.clientSecret)))
+    for
+      resp <- naming(call)(client.expectOr[SpotifyToken](req) { errorRes =>
         errorRes.bodyText.compile.string.flatMap { body =>
-          Async[F].raiseError(new RuntimeException(s"Couldn't renew the Spotify access token, ${errorRes.status}: $body"))
+          Async[F].raiseError(SpotifyTokenError.of(call, errorRes.status, body))
         }
       })
       _ <- session.set(Some(SpotifySession(resp.access_token, resp.refresh_token.getOrElse(refresh))))
-      _ <- logger.info("Renewed the Spotify access token")
     yield resp.access_token
 
   /**
@@ -157,24 +175,24 @@ class SpotifyClient[F[_]: Async: Network](
 
 object SpotifyClient:
 
-  /** Where Spotify sends the browser back after sign-in: hands the code it carries to `deferred`. */
-  def callbackRoutes[F[_]: Async](deferred: Deferred[F, String]): HttpRoutes[F] = {
+  /** Where Spotify sends the browser back after sign-in: hands the code it carries to the sign-in waiting for it. */
+  def callbackRoutes[F[_]: Async](codes: SignInCodes[F]): HttpRoutes[F] = {
     val dsl = new org.http4s.dsl.Http4sDsl[F] {}
     import dsl.*
     HttpRoutes.of[F] {
       case GET -> Root / "callback" :? CodeMatcher(code) =>
-        deferred.complete(code) *> Ok("Success! Return to your terminal.")
+        codes.hand(code) *> Ok("Success! Return to your terminal.")
     }
   }
 
-  def serverResource[F[_]: Async: Network](deferred: Deferred[F, String]): Resource[F, org.http4s.server.Server] =
-    EmberServerBuilder.default[F].withHost(ipv4"127.0.0.1").withPort(port"7070").withHttpApp(callbackRoutes(deferred).orNotFound).build
+  def serverResource[F[_]: Async: Network](codes: SignInCodes[F]): Resource[F, org.http4s.server.Server] =
+    EmberServerBuilder.default[F].withHost(ipv4"127.0.0.1").withPort(port"7070").withHttpApp(callbackRoutes[F](codes).orNotFound).build
 
   def resource[F[_]: Async: Network](client: Client[F], creds: SpotifyCredentials): Resource[F, SpotifyClient[F]] =
     for
       session <- Resource.eval(Ref.of[F, Option[SpotifySession]](None))
-      authCodeDeferred <- Resource.eval(Deferred[F, String])
-      _ <- serverResource(authCodeDeferred)
-    yield new SpotifyClient[F](client, creds, session, authCodeDeferred)
+      codes <- Resource.eval(Deferred[F, String]).map(SignInCodes.once[F])
+      _ <- serverResource(codes)
+    yield new SpotifyClient[F](client, creds, session, codes)
 
   object CodeMatcher extends QueryParamDecoderMatcher[String]("code")

@@ -1,6 +1,7 @@
 package domain.config
 
 import domain.engine.{LightRole, Order, PaletteType, RGB}
+import com.typesafe.config.{ConfigFactory, ConfigResolveOptions}
 import munit.FunSuite
 import pureconfig.ConfigSource
 
@@ -74,16 +75,27 @@ class LightShowConfigSpec extends FunSuite {
     invalid.foreach(c => assert(load(c).isLeft, c))
   }
 
-  test("the shipped application.conf loads, with the beat taken from audio") {
-    val shipped = scala.io.Source.fromResource("application.conf").mkString
-    val values = Map(
-      "SPOTIFY_CLIENT_ID" -> "id", "SPOTIFY_CLIENT_SECRET" -> "secret", "SPOTIFY_REFRESH_TOKEN" -> "r",
-      "HUE_ZONE_ID" -> "zone", "HUE_BRIDGE_ADDRESS" -> "10.0.0.2", "HUE_USERNAME" -> "u", "HUE_PSK" -> "00112233445566778899aabbccddeeff"
-    )
-    val resolved = values.foldLeft(shipped)((acc, kv) => acc.replace("${" + kv._1 + "}", "\"" + kv._2 + "\""))
-    val result = ConfigSource.string(resolved).withFallback(reference).load[AppConfig].left.map(_.prettyPrint())
-    assertEquals(result.map(_.lightShow), Right(LightShowConfig(beatSource = BeatSource.Audio)))
-    assertEquals(result.map(_.pollingIntervalMs), Right(1000))
+  private val shippedRefreshToken = List(
+    ("set", Some("\"r\""), Some("r")),
+    ("empty", Some("\"\""), Some("")),
+    ("unset", None, None)
+  )
+
+  shippedRefreshToken.foreach { (name, replacement, expected) =>
+    test(s"the shipped application.conf loads, with the beat taken from audio and the refresh token $name") {
+      val shipped = scala.io.Source.fromResource("application.conf").mkString
+      val values = Map(
+        "SPOTIFY_CLIENT_ID" -> "id", "SPOTIFY_CLIENT_SECRET" -> "secret",
+        "HUE_ZONE_ID" -> "zone", "HUE_BRIDGE_ADDRESS" -> "10.0.0.2", "HUE_USERNAME" -> "u", "HUE_PSK" -> "00112233445566778899aabbccddeeff"
+      )
+      val substituted = values.foldLeft(shipped)((acc, kv) => acc.replace("${" + kv._1 + "}", "\"" + kv._2 + "\""))
+      val resolved = replacement.fold(substituted)(r => substituted.replace("${?SPOTIFY_REFRESH_TOKEN}", r))
+      val source = ConfigSource.fromConfig(ConfigFactory.parseString(resolved).resolve(ConfigResolveOptions.noSystem()))
+      val result = source.withFallback(reference).load[AppConfig].left.map(_.prettyPrint())
+      assertEquals(result.map(_.spotify.refreshToken), Right(expected))
+      assertEquals(result.map(_.lightShow), Right(LightShowConfig(beatSource = BeatSource.Audio)))
+      assertEquals(result.map(_.pollingIntervalMs), Right(1000))
+    }
   }
 
   test("analogous-complementary orders are both configurable") {

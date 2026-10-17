@@ -9,5 +9,9 @@ import io.circe.Codec
 case class SpotifyCredentials(
   clientId: String,
   clientSecret: String,
-  refreshToken: String
-) derives Codec.AsObject
+  refreshToken: Option[String] = None
+) derives Codec.AsObject {
+
+  /** The refresh token to start from, if one is configured: `SPOTIFY_REFRESH_TOKEN=` left empty in `.env` counts as none. */
+  def configuredRefreshToken: Option[String] = refreshToken.map(_.trim).filter(_.nonEmpty)
+}

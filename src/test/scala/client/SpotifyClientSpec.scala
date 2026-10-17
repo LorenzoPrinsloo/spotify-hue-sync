@@ -18,7 +18,7 @@ class SpotifyClientSpec extends CatsEffectSuite {
       session <- Ref.of[IO, Option[SpotifySession]](Some(SpotifySession("token", "refresh")))
       code <- Deferred[IO, String]
       app = HttpRoutes.of[IO] { case GET -> Root / "v1" / "audio-features" / "track-1" => response }.orNotFound
-    } yield new SpotifyClient[IO](Client.fromHttpApp(app), SpotifyCredentials("id", "secret", "refresh"), session, code)
+    } yield new SpotifyClient[IO](Client.fromHttpApp(app), SpotifyCredentials("id", "secret", Some("refresh")), session, code)
 
   test("reads the tempo from Spotify's audio features") {
     spotify(Ok("""{ "id": "track-1", "tempo": 123.5, "energy": 0.8 }"""))
@@ -59,7 +59,7 @@ class SpotifyClientSpec extends CatsEffectSuite {
         case req @ GET -> Root / "v1" / "audio-features" / "track-1" =>
           if (req.headers.get[Authorization].contains(fresh)) Ok("""{ "tempo": 123.5 }""") else rejected
       }.orNotFound
-    } yield Expiring(new SpotifyClient[IO](Client.fromHttpApp(app), SpotifyCredentials("id", "secret", "refresh-0"), session, code), session,
+    } yield Expiring(new SpotifyClient[IO](Client.fromHttpApp(app), SpotifyCredentials("id", "secret", Some("refresh-0")), session, code), session,
       renewals)
 
   private def renewedTo(access: String, refresh: Option[String]): IO[Response[IO]] =
@@ -109,7 +109,7 @@ class SpotifyClientSpec extends CatsEffectSuite {
         case req @ GET -> Root / "v1" / "me" / "player" =>
           if (req.headers.get[Authorization].contains(signedIn)) Ok(playing) else rejected
       }.orNotFound
-      state <- new SpotifyClient[IO](Client.fromHttpApp(app), SpotifyCredentials("id", "secret", "refresh-0"), session, code).getPlaybackState
+      state <- new SpotifyClient[IO](Client.fromHttpApp(app), SpotifyCredentials("id", "secret", Some("refresh-0")), session, code).getPlaybackState
       form <- exchanged.get
       stored <- session.get
     } yield {
@@ -128,7 +128,7 @@ class SpotifyClientSpec extends CatsEffectSuite {
         case GET -> Root / "authorize" => code.complete("code-1") *> Ok("signed in")
         case POST -> Root / "api" / "token" => BadRequest("""{ "error": "invalid_grant" }""")
       }.orNotFound
-      _ <- new SpotifyClient[IO](Client.fromHttpApp(app), SpotifyCredentials("id", "secret", "refresh-0"), session, code)
+      _ <- new SpotifyClient[IO](Client.fromHttpApp(app), SpotifyCredentials("id", "secret", Some("refresh-0")), session, code)
         .getPlaybackState.intercept[RuntimeException]
       stored <- session.get
     } yield assertEquals(stored, None)
@@ -137,7 +137,7 @@ class SpotifyClientSpec extends CatsEffectSuite {
   test("the callback hands the sign-in code over, and nothing else counts as a callback") {
     for {
       code <- Deferred[IO, String]
-      routes = SpotifyClient.callbackRoutes[IO](code).orNotFound
+      routes = SpotifyClient.callbackRoutes[IO](SignInCodes.once(code)).orNotFound
       answered <- routes.run(Request(Method.GET, uri"/callback?code=abc&state=xyz"))
       handed <- code.get
       without <- routes.run(Request(Method.GET, uri"/callback"))
