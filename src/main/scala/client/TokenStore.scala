@@ -62,7 +62,7 @@ object TokenStore {
     delete: Path => F[Unit]
   ): F[TokenStore[F]] =
     for {
-      reported <- Ref.of[F, Set[TokenFileProblem]](Set.empty)
+      reported <- Ref.of[F, Set[String]](Set.empty)
       mutex <- Mutex[F]
       disk = new Disk[F](path, modes, move, delete, reported)
       loaded <- disk.read.flatMap(Ref.of[F, Option[String]](_))
@@ -82,44 +82,38 @@ object TokenStore {
     modes: FileModes[F],
     move: (Path, Path) => F[Unit],
     delete: Path => F[Unit],
-    reported: Ref[F, Set[TokenFileProblem]]
+    reported: Ref[F, Set[String]]
   ) {
     private val target = path.absolute
 
-    def report(problem: TokenFileProblem): F[Unit] = {
-      val kind = problem match {
-        case TokenFileProblem.Unwritable(_, _) => TokenFileProblem.Unwritable(path, "")
-        case TokenFileProblem.Undeletable(_, _) => TokenFileProblem.Undeletable(path, "")
-        case other => other
-      }
+    def report(problem: TokenFileProblem): F[Unit] =
       reported
-        .modify(seen => (seen + kind, !seen.contains(kind)))
+        .modify(seen => (seen + problem.message, !seen.contains(problem.message)))
         .flatMap(fresh => logger[F].warn(problem.context)(problem.message).whenA(fresh))
-    }
 
     private def restrict: F[Unit] =
       modes.get(path).attempt.flatMap {
-        case Left(_) => report(TokenFileProblem.NoPosixPermissions(path))
-        case Right(permissions) if (permissions.value & groupAndOthers) == 0 => Async[F].unit
-        case Right(_) =>
-          (modes.set(path, ownerOnly) *> modes.get(path)).attempt.flatMap {
-            case Right(restricted) if restricted == ownerOnly => report(TokenFileProblem.LoosePermissions(path))
-            case _ => report(TokenFileProblem.NoPosixPermissions(path))
-          }
+        _.fold(
+          _ => report(TokenFileProblem.NoPosixPermissions(path)),
+          permissions => tighten.unlessA((permissions.value & groupAndOthers) == 0)
+        )
       }
 
+    private def noPosix: F[Unit] = report(TokenFileProblem.NoPosixPermissions(path))
+
+    private def tighten: F[Unit] = (modes.set(path, ownerOnly) *> modes.get(path)).attempt.flatMap {
+      _.fold(_ => noPosix, restricted => if (restricted == ownerOnly) report(TokenFileProblem.LoosePermissions(path)) else noPosix)
+    }
+
     def read: F[Option[String]] =
-      Files[F].exists(path).flatMap {
-        case false => Async[F].pure(None)
-        case true =>
-          Files[F].readUtf8(path).compile.string.attempt.flatMap {
-            case Left(e) => report(TokenFileProblem.Unreadable(path, reason(e))).as(None)
-            case Right(contents) =>
-              TokenFile.parse(path, contents) match {
-                case Left(problem) => report(problem).as(None)
-                case Right(token) => restrict.as(Some(token))
-              }
-          }
+      Files[F].exists(path).ifM(readExisting, Async[F].pure(None))
+
+    private def readExisting: F[Option[String]] =
+      Files[F].readUtf8(path).compile.string.attempt.flatMap {
+        _.fold(
+          e => report(TokenFileProblem.Unreadable(path, reason(e))).as(None),
+          contents => TokenFile.parse(path, contents).fold(problem => report(problem).as(None), token => restrict.as(Some(token)))
+        )
       }
 
     private def createWith[A](permissions: PosixPermissions)(create: Option[Permissions] => F[A]): F[A] =
@@ -145,8 +139,7 @@ object TokenStore {
         _ <- directory.traverse_(d => createWith(ownerDirectory)(Files[F].createDirectories(d, _)))
         _ <- tempFile(directory).use(temp => put(temp, text) *> move(temp, target).handleErrorWith(_ => putInPlace(text)))
         _ <- modes.get(target).attempt.flatMap {
-          case Right(permissions) if permissions == ownerOnly => Async[F].unit
-          case _ => report(TokenFileProblem.NoPosixPermissions(path))
+          _.fold(_ => noPosix, permissions => noPosix.unlessA(permissions == ownerOnly))
         }
       } yield ()
     }

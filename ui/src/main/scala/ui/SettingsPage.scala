@@ -29,10 +29,7 @@ final class SettingsPage {
     }
 
   private def received(answer: Either[List[String], SettingsView]): Unit =
-    answer match {
-      case Right(view) => server.set(Some(view)); serverProblems.set(Nil)
-      case Left(found) => serverProblems.set(found)
-    }
+    answer.fold(found => serverProblems.set(found), { view => server.set(Some(view)); serverProblems.set(Nil) })
 
   private def loaded(answer: Either[List[String], SettingsView]): Unit = {
     received(answer)

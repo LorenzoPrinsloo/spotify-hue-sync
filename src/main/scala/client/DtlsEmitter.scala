@@ -43,8 +43,9 @@ class DtlsEmitter[F[_]: Async](creds: HueCredentials):
     )(c => Async[F].delay(c.destroy()) <* logger.info("DTLS Connector stopped"))
 
   def send(connector: DTLSConnector, frame: Frame): F[Unit] =
-    Codec[Frame].encode(frame).toEither match {
-      case Right(bits) =>
+    Codec[Frame].encode(frame).toEither.fold(
+      err => logger.error(s"Failed to encode Hue Frame: $err"),
+      bits =>
         logger.debug(s"RAW PACKET HEX: ${bits.toHex}")
           .flatTap { _ =>
             Async[F].blocking {
@@ -54,6 +55,4 @@ class DtlsEmitter[F[_]: Async](creds: HueCredentials):
               connector.send(data)
             }
           }
-      case Left(err) =>
-        logger.error(s"Failed to encode Hue Frame: $err")
-    }
+    )
