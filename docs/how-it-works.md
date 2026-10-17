@@ -11,12 +11,14 @@ sequenceDiagram
     participant App as SpotifyClient
     participant CB as Callback server :7070
     participant Acc as accounts.spotify.com
+    participant File as Refresh token file
 
-    opt SPOTIFY_REFRESH_TOKEN set
+    opt a saved or configured refresh token
         App->>Acc: POST /api/token (grant_type=refresh_token)
         Acc-->>App: access token (signed in, no browser)
+        App->>File: save the newest refresh token
     end
-    Note over App,Acc: on invalid_grant, or with no token set, sign in through the browser
+    Note over App,Acc: on invalid_grant, forget the saved token and fall back, ending with the browser
     App->>App: log the authorize URL
     Note over App,CB: the user opens the URL in a browser and approves
     Acc-->>CB: redirect to /callback?code=...
@@ -24,10 +26,11 @@ sequenceDiagram
     App->>Acc: POST /api/token (code + client credentials)
     Acc-->>App: access and refresh tokens
     App->>App: store both in a Ref
+    App->>File: save the refresh token
 ```
 
-- The first call to Spotify triggers the sign-in. If `SPOTIFY_REFRESH_TOKEN` is set, the app swaps it for an access token (`POST /api/token` with `grant_type=refresh_token`) and no browser is needed. If it is unset, or Spotify answers `invalid_grant` (logged as a WARN), the app logs the authorize URL; opening it in a browser completes the flow. Any other failure of the swap (a 429, `invalid_client` or 5xx) fails that poll, and the next poll tries again.
-- After a browser sign-in, the session keeps the refresh token Spotify sends with it.
+- The first call to Spotify triggers the sign-in. The app tries, in order: the refresh token saved in the token file, `SPOTIFY_REFRESH_TOKEN`, then the browser. A refresh token is swapped for an access token (`POST /api/token` with `grant_type=refresh_token`) and no browser is needed. If Spotify answers `invalid_grant` (logged as a WARN), the app moves on to the next source, and a rejected saved token is also deleted so it is never sent again. When nothing is left, the app logs the authorize URL; opening it in a browser completes the flow. Any other failure of the swap (a 429, `invalid_client` or 5xx) fails that poll, the file is kept, and the next poll tries again.
+- After a browser sign-in, the session keeps the refresh token Spotify sends with it, and the app saves it to the token file. Whenever a renewal brings a new refresh token, that one is saved too, so the file holds the newest. Saving never stops the show: a failure is logged as a WARN and the token stays in memory. The file's location and permissions are in the README.
 - A failed code exchange fails that poll. The next poll logs a new URL to approve, and no restart is needed.
 - The callback server listens only on `127.0.0.1:7070`, so it is not reachable from other machines.
 - Access tokens expire after about an hour. When Spotify rejects one, the app swaps the refresh token for a new access token (`POST /api/token` with `grant_type=refresh_token`) and sends the request again. If that fails, the poll fails with an error in the log rather than being read as "nothing playing".

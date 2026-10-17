@@ -33,12 +33,16 @@ class SpotifyClient[F[_]: Async: Network](
   client: Client[F],
   creds: SpotifyCredentials,
   session: Ref[F, Option[SpotifySession]],
-  codes: SignInCodes[F]
+  codes: SignInCodes[F],
+  store: TokenStore[F]
 ) extends Http4sClientDsl[F]:
+
+  def this(client: Client[F], creds: SpotifyCredentials, session: Ref[F, Option[SpotifySession]], codes: SignInCodes[F]) =
+    this(client, creds, session, codes, TokenStore.none[F])
 
   /** Signs in through the browser at most once, with the code `authCode` is completed with. */
   def this(client: Client[F], creds: SpotifyCredentials, session: Ref[F, Option[SpotifySession]], authCode: Deferred[F, String]) =
-    this(client, creds, session, SignInCodes.once[F](authCode))
+    this(client, creds, session, SignInCodes.once[F](authCode), TokenStore.none[F])
 
   private val authUri = uri"https://accounts.spotify.com/api/token"
   private val apiUri = uri"https://api.spotify.com/v1"
@@ -96,14 +100,27 @@ class SpotifyClient[F[_]: Async: Network](
         Async[F].pure
       )
       _ <- session.set(Some(SpotifySession(resp.access_token, refresh)))
+      _ <- store.save(refresh)
       _ <- logger.info(Map("client_id" -> creds.clientId))("Signed in to Spotify through the browser")
     yield resp.access_token
 
   /**
-   * Starts a session from the configured refresh token, falling back to the browser sign-in when there is none or
-   * Spotify answers that it's no good (invalid_grant).
+   * Starts a session from the saved refresh token, then the configured one, falling back to the browser sign-in when
+   * there is none or Spotify answers that it's no good (invalid_grant).
    */
   def signIn: F[String] =
+    store.load.flatMap:
+      case Some(saved) =>
+        refreshWith("Refresh Token Exchange", saved)
+          .flatTap(_ => logger.info(Map("client_id" -> creds.clientId))("Signed in to Spotify with the saved refresh token"))
+          .recoverWith { case SpotifyTokenError.Rejected(_, status, _) =>
+            logger.warn(Map("client_id" -> creds.clientId))(
+              s"Spotify rejected the saved refresh token (status: $status); deleted it and falling back"
+            ) *> store.forget *> fromConfigured
+          }
+      case None => fromConfigured
+
+  private def fromConfigured: F[String] =
     creds.configuredRefreshToken.fold(initialAuth) { token =>
       refreshWith("Refresh Token Exchange", token)
         .flatTap(_ => logger.info(Map("client_id" -> creds.clientId))("Signed in to Spotify with the configured refresh token"))
@@ -130,7 +147,7 @@ class SpotifyClient[F[_]: Async: Network](
     for
       token <- session.get.flatMap {
         case Some(s) => refreshWith("Renew", s.refreshToken)
-        case None => creds.configuredRefreshToken.fold(initialAuth)(refreshWith("Renew", _))
+        case None => signIn
       }
       _ <- logger.info("Renewed the Spotify access token")
     yield token
@@ -150,6 +167,7 @@ class SpotifyClient[F[_]: Async: Network](
         }
       })
       _ <- session.set(Some(SpotifySession(resp.access_token, resp.refresh_token.getOrElse(refresh))))
+      _ <- resp.refresh_token.traverse_(store.save)
     yield resp.access_token
 
   /**
@@ -203,11 +221,11 @@ object SpotifyClient:
   def serverResource[F[_]: Async: Network](codes: SignInCodes[F]): Resource[F, org.http4s.server.Server] =
     EmberServerBuilder.default[F].withHost(ipv4"127.0.0.1").withPort(port"7070").withHttpApp(callbackRoutes[F](codes).orNotFound).build
 
-  def resource[F[_]: Async: Network](client: Client[F], creds: SpotifyCredentials): Resource[F, SpotifyClient[F]] =
+  def resource[F[_]: Async: Network](client: Client[F], creds: SpotifyCredentials, store: TokenStore[F]): Resource[F, SpotifyClient[F]] =
     for
       session <- Resource.eval(Ref.of[F, Option[SpotifySession]](None))
       codes <- Resource.eval(SignInCodes.make[F])
       _ <- serverResource(codes)
-    yield new SpotifyClient[F](client, creds, session, codes)
+    yield new SpotifyClient[F](client, creds, session, codes, store)
 
   object CodeMatcher extends QueryParamDecoderMatcher[String]("code")

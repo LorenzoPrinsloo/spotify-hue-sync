@@ -61,7 +61,7 @@ flowchart LR
 |---|---|
 | (root) | `Main`, which wires everything together, and `SyncEngine`, which turns playback state into light frames |
 | (root) | Also `Lights`: the bridge's entertainment areas and the channels in each, as the engine sees them |
-| `client` | Everything that talks to the outside world: `SpotifyClient`, `HueClient` (including the list of entertainment areas), `DtlsEmitter`, and `EntertainmentStream`, which streams each frame to its area and moves the stream when the area changes |
+| `client` | Everything that talks to the outside world: `SpotifyClient` (with `TokenStore`, which saves the refresh token to a file, `TokenFile`, the file's format and problems, and `FileModes`, its permission checks), `HueClient` (including the list of entertainment areas), `DtlsEmitter`, and `EntertainmentStream`, which streams each frame to its area and moves the stream when the area changes |
 | `audio` | `AudioCapture` captures audio from an input device such as BlackHole; `AudioInput` holds its format, chooses the device and mixes the audio to mono; `CaptureClock` times each block |
 | `beat` | Live beat detection: `Fft`, `OnsetDetector`, `BeatTracker`, `BeatState`, `Groove` (the bar's kick pattern), `AudioReading` and the `BeatTracking` stream |
 | `domain.config` | `AppConfig`, `HueConfig`, `UiConfig` and `LightShowConfig` (with `PulseSettings`, `PauseSettings`, `AudioSettings`, `ReactiveSettings` and `SwellSettings`, in `model`), loaded with pureconfig from `application.conf` on top of the defaults in `reference.conf` by `LightShowConfigReaders`; `SettingsView`, `SettingsProblems` and `ConfigSnippet` for the settings page |
@@ -270,6 +270,7 @@ sequenceDiagram
     participant E as SyncEngine
 
     M->>C: load application.conf (env variables)
+    M->>M: build the TokenStore (SPOTIFY_TOKEN_FILE or spotify.token-file, else the default location)
     M->>S: build two HTTP clients (Spotify's checks certificates, the bridge's accepts its self-signed one) and start callback server on :7070
     M->>H: list the entertainment areas
     H-->>M: areas
