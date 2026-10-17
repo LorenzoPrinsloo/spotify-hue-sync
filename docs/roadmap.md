@@ -4,7 +4,7 @@ What's still to do, roughly in priority order. Tick items off as they land.
 
 ## Sign-in
 
-- [ ] **Replace the `sp_dc` cookie with the standard browser flow.** The app already logs the authorize URL and runs the callback server, so the cookie request can go. This also removes the most sensitive secret from the setup.
+- [x] **Replace the `sp_dc` cookie with the standard browser flow.** The app already logs the authorize URL and runs the callback server, so the cookie request can go. This also removes the most sensitive secret from the setup.
 - [ ] **Remember the refresh token between runs,** so the browser sign-in is only needed once.
 
 ## Light show

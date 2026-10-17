@@ -18,7 +18,7 @@ sequenceDiagram
     end
     Note over App,Acc: on invalid_grant, or with no token set, sign in through the browser
     App->>App: log the authorize URL
-    App->>Acc: GET /authorize (with SPOTIFY_SP_DC cookie if set)
+    Note over App,CB: the user opens the URL in a browser and approves
     Acc-->>CB: redirect to /callback?code=...
     CB->>App: hand the code to the waiting sign-in
     App->>Acc: POST /api/token (code + client credentials)
@@ -28,7 +28,6 @@ sequenceDiagram
 
 - The first call to Spotify triggers the sign-in. If `SPOTIFY_REFRESH_TOKEN` is set, the app swaps it for an access token (`POST /api/token` with `grant_type=refresh_token`) and no browser is needed. If it is unset, or Spotify answers `invalid_grant` (logged as a WARN), the app logs the authorize URL; opening it in a browser completes the flow. Any other failure of the swap (a 429, `invalid_client` or 5xx) fails that poll, and the next poll tries again.
 - After a browser sign-in, the session keeps the refresh token Spotify sends with it.
-- If `SPOTIFY_SP_DC` is set, the app also requests the authorize URL with that session cookie, which can complete the consent step without a browser.
 - A failed code exchange fails that poll. The next poll logs a new URL to approve, and no restart is needed.
 - The callback server listens only on `127.0.0.1:7070`, so it is not reachable from other machines.
 - Access tokens expire after about an hour. When Spotify rejects one, the app swaps the refresh token for a new access token (`POST /api/token` with `grant_type=refresh_token`) and sends the request again. If that fails, the poll fails with an error in the log rather than being read as "nothing playing".

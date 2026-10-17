@@ -12,6 +12,7 @@ import org.http4s.client.Client
 import org.http4s.dsl.io.*
 import org.http4s.headers.Authorization
 import org.http4s.implicits.*
+import org.typelevel.ci.CIStringSyntax
 import testkit.Tls
 
 import java.util.concurrent.TimeoutException
@@ -102,6 +103,9 @@ class SpotifyClientSpec extends CatsEffectSuite {
     expiring(BadRequest("""{ "error": "invalid_grant" }""")).flatMap(_.client.getPlaybackState).intercept[RuntimeException]
   }
 
+  private def handCode(code: Deferred[IO, String], value: String): IO[Response[IO]] =
+    SpotifyClient.callbackRoutes[IO](SignInCodes.once(code)).orNotFound.run(Request(Method.GET, uri"/callback".withQueryParam("code", value)))
+
   test("signs in on first use: swaps the code from the callback for tokens, then uses them") {
     for {
       session <- Ref.of[IO, Option[SpotifySession]](None)
@@ -109,12 +113,12 @@ class SpotifyClientSpec extends CatsEffectSuite {
       exchanged <- Ref.of[IO, Option[UrlForm]](None)
       signedIn = Authorization(Credentials.Token(AuthScheme.Bearer, "signed-in"))
       app = HttpRoutes.of[IO] {
-        case GET -> Root / "authorize" => code.complete("code-1") *> Ok("signed in")
         case req @ POST -> Root / "api" / "token" =>
           req.as[UrlForm].flatMap(form => exchanged.set(Some(form))) *> renewedTo("signed-in", Some("refresh-9"))
         case req @ GET -> Root / "v1" / "me" / "player" =>
           if (req.headers.get[Authorization].contains(signedIn)) Ok(playing) else rejected
       }.orNotFound
+      _ <- handCode(code, "code-1")
       state <- new SpotifyClient[IO](Client.fromHttpApp(app), SpotifyCredentials("id", "secret"), session, code).getPlaybackState
       form <- exchanged.get
       stored <- session.get
@@ -131,9 +135,9 @@ class SpotifyClientSpec extends CatsEffectSuite {
       session <- Ref.of[IO, Option[SpotifySession]](None)
       code <- Deferred[IO, String]
       app = HttpRoutes.of[IO] {
-        case GET -> Root / "authorize" => code.complete("code-1") *> Ok("signed in")
         case POST -> Root / "api" / "token" => BadRequest("""{ "error": "invalid_grant" }""")
       }.orNotFound
+      _ <- handCode(code, "code-1")
       _ <- new SpotifyClient[IO](Client.fromHttpApp(app), SpotifyCredentials("id", "secret"), session, code)
         .getPlaybackState.intercept[RuntimeException]
       stored <- session.get
@@ -172,7 +176,6 @@ class SpotifyClientSpec extends CatsEffectSuite {
       session <- Ref.of[IO, Option[SpotifySession]](None)
       exchanged <- Ref.of[IO, List[String]](Nil)
       fake = HttpRoutes.of[IO] {
-        case GET -> Root / "authorize" => Ok("login")
         case req @ POST -> Root / "api" / "token" =>
           req.as[UrlForm].flatMap { form =>
             val code = form.getFirstOrElse("code", "")
@@ -222,20 +225,6 @@ class SpotifyClientSpec extends CatsEffectSuite {
     }
   }
 
-  test("a code handed over during the authorize request is not lost") {
-    val flow = for {
-      codes <- SignInCodes.make[IO]
-      session <- Ref.of[IO, Option[SpotifySession]](None)
-      fake = HttpRoutes.of[IO] {
-        case GET -> Root / "authorize" => codes.hand("code-1") *> Ok("signed in")
-        case POST -> Root / "api" / "token" => renewedTo("signed-in", Some("refresh-9"))
-        case req @ GET -> Root / "v1" / "me" / "player" => playerFor(req)
-      }.orNotFound
-      state <- new SpotifyClient[IO](Client.fromHttpApp(fake), SpotifyCredentials("hand-during-authorize", "secret"), session, codes).getPlaybackState
-    } yield assert(state.exists(_.isPlaying), state.toString)
-    TestControl.executeEmbed(flow)
-  }
-
   test("a callback with no sign-in waiting answers the usual page and the code is dropped") {
     val flow = for {
       codes <- SignInCodes.make[IO]
@@ -253,12 +242,14 @@ class SpotifyClientSpec extends CatsEffectSuite {
 
   private case class TokenCall(grant: String, refreshToken: String, code: String)
 
+  private case class Sent(method: Method, uri: Uri, headers: Headers, body: String)
+
   private case class Rig(
     spotify: SpotifyClient[IO],
     session: Ref[IO, Option[SpotifySession]],
     routes: HttpApp[IO],
     tokenCalls: IO[List[TokenCall]],
-    authorizes: IO[Int]
+    sent: IO[List[Sent]]
   ) {
     def handCode: IO[Response[IO]] = routes.run(Request(Method.GET, uri"/callback?code=browser-code"))
   }
@@ -268,9 +259,8 @@ class SpotifyClientSpec extends CatsEffectSuite {
       codes <- SignInCodes.make[IO]
       session <- Ref.of[IO, Option[SpotifySession]](None)
       calls <- Ref.of[IO, List[TokenCall]](Nil)
-      authorizes <- Ref.of[IO, Int](0)
+      sent <- Ref.of[IO, List[Sent]](Nil)
       fake = HttpRoutes.of[IO] {
-        case GET -> Root / "authorize" => authorizes.update(_ + 1) *> Ok("login")
         case req @ POST -> Root / "api" / "token" =>
           req.as[UrlForm].flatMap { form =>
             val call = TokenCall(form.getFirstOrElse("grant_type", ""), form.getFirstOrElse("refresh_token", ""), form.getFirstOrElse("code", ""))
@@ -283,12 +273,17 @@ class SpotifyClientSpec extends CatsEffectSuite {
           }
         case req @ GET -> Root / "v1" / "me" / "player" => playerFor(req)
       }.orNotFound
+      recording = HttpApp[IO] { req =>
+        req.bodyText.compile.string.flatMap { body =>
+          sent.update(Sent(req.method, req.uri, req.headers, body) :: _) *> fake.run(req.withEntity(body).withHeaders(req.headers))
+        }
+      }
     } yield Rig(
-      new SpotifyClient[IO](Client.fromHttpApp(fake), SpotifyCredentials(clientId, "secret", configured), session, codes),
+      new SpotifyClient[IO](Client.fromHttpApp(recording), SpotifyCredentials(clientId, "secret", configured), session, codes),
       session,
       SpotifyClient.callbackRoutes[IO](codes).orNotFound,
       calls.get,
-      authorizes.get
+      sent.get
     )
 
   private def browserSignIn(r: Rig): IO[Option[domain.spotify.PlaybackState]] =
@@ -329,12 +324,12 @@ class SpotifyClientSpec extends CatsEffectSuite {
         r <- rig(id, Some(token), renewedTo("signed-in", Some("refresh-9")))
         state <- r.spotify.getPlaybackState
         calls <- r.tokenCalls
-        authorizes <- r.authorizes
-      } yield (state, calls, authorizes)
-      TestControl.executeEmbed(flow).map { (state, calls, authorizes) =>
+        sent <- r.sent
+      } yield (state, calls, sent)
+      TestControl.executeEmbed(flow).map { (state, calls, sent) =>
         assert(state.exists(_.isPlaying), state.toString)
         assertEquals(calls, List(TokenCall("refresh_token", token, "")))
-        assertEquals(authorizes, 0)
+        assert(!sent.exists(_.uri.path.renderString == "/authorize"), sent.toString)
         assertEquals(visits(appender, id), 0)
         assertEquals(infoLines(appender, id, "Signed in to Spotify with the configured refresh token"), 1)
         assertEquals(infoLines(appender, id, "Signed in to Spotify through the browser"), 0)
@@ -414,6 +409,35 @@ class SpotifyClientSpec extends CatsEffectSuite {
         assertEquals(visits(appender, id), 1)
         assertEquals(infoLines(appender, id, "Signed in to Spotify through the browser"), 1)
         assertEquals(infoLines(appender, id, "Signed in to Spotify with the configured refresh token"), 0)
+      }
+    }
+  }
+
+  List(
+    ("a valid configured token", "sp-dc-valid", Some("token-sp-dc-valid"), renewedTo("signed-in", Some("refresh-9")), false),
+    ("a rejected configured token", "sp-dc-rejected", Some("token-sp-dc-rejected"), BadRequest("""{"error":"invalid_grant"}"""), true),
+    ("no configured token", "sp-dc-absent", None, renewedTo("unused", None), true)
+  ).foreach { (what, id, configured, answer, viaBrowser) =>
+    test(s"with $what the sp_dc cookie is never sent and never logged") {
+      val sentinel = sys.env.getOrElse("SPOTIFY_SP_DC", fail("SPOTIFY_SP_DC is not set for the test JVM"))
+      loggedAtInfo.use { (appender, _) =>
+        val flow = for {
+          r <- rig(id, configured, answer)
+          state <- if (viaBrowser) browserSignIn(r) else r.spotify.getPlaybackState
+          sent <- r.sent
+        } yield (state, sent)
+        TestControl.executeEmbed(flow).map { (state, sent) =>
+          assert(state.exists(_.isPlaying), state.toString)
+          assert(sent.forall(_.headers.get(ci"Cookie").isEmpty), sent.toString)
+          assert(!sent.exists(_.uri.path.renderString == "/authorize"), sent.toString)
+          val requestTexts = sent.flatMap(s => List(s.headers.headers.map(_.toString).mkString("\n"), s.uri.renderString, s.body))
+          assert(!requestTexts.exists(_.contains(sentinel)), "the sp_dc sentinel reached a request")
+          val logTexts = Tls.logged(appender).flatMap { e =>
+            e.getFormattedMessage :: e.getMDCPropertyMap.values.toArray.toList.map(_.toString) :::
+              Option(e.getThrowableProxy).map(_.getMessage).toList
+          }
+          assert(!logTexts.exists(_.contains(sentinel)), "the sp_dc sentinel reached a log line")
+        }
       }
     }
   }
