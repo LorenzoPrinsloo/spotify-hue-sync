@@ -270,7 +270,7 @@ sequenceDiagram
     participant E as SyncEngine
 
     M->>C: load application.conf (env variables)
-    M->>S: build HTTP client and start callback server on :7070
+    M->>S: build two HTTP clients (Spotify's checks certificates, the bridge's accepts its self-signed one) and start callback server on :7070
     M->>H: list the entertainment areas
     H-->>M: areas
     M->>M: choose the area (light-show.area, hue.zone-id or the only music area)
