@@ -78,7 +78,7 @@ class MainSpec extends CatsEffectSuite {
     }.orNotFound)
 
   test("start talks to a bridge with a self-signed certificate") {
-    Ref.of[IO, List[String]](Nil).flatMap { actions =>
+    (Ref.of[IO, List[String]](Nil).toResource, Tls.capturedLogs).tupled.use { (actions, appender) =>
       selfSignedBridge(actions).use { (port, requests) =>
         val config = ConfigSource
           .string(hocon(digits, port) + "ui.enabled = false\npolling-interval-ms = 3600000\n")
@@ -90,6 +90,12 @@ class MainSpec extends CatsEffectSuite {
             assert(calls.contains("GET" -> s"$base/$path"), calls.toString)
           }
           assert(put.contains("start"), put.toString)
+          val certificateErrors = Tls.logged(appender)
+            .filter(_.getLevel.isGreaterOrEqual(ch.qos.logback.classic.Level.WARN))
+            .map(_.getFormattedMessage)
+            .filterNot(_.contains("SpotifyTlsFailure"))
+            .filter(m => List("SSLHandshakeException", "PKIX").exists(m.contains))
+          assertEquals(certificateErrors, Nil)
         }
       }
     }

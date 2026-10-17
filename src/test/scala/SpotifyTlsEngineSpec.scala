@@ -55,9 +55,52 @@ class SpotifyTlsEngineSpec extends CatsEffectSuite {
         assertEquals(requests.size, 0)
         assert(frames.nonEmpty)
         assert(
-          errors.exists(m => m.contains("Spotify Poll Failed") && List("SSLHandshakeException", "PKIX", "certificate").exists(m.contains)),
+          errors.exists(m =>
+            m.contains("Spotify Poll Failed") && m.contains("Spotify Playback Poll failed") &&
+              List("SSLHandshakeException", "PKIX", "certificate").exists(m.contains)
+          ),
           errors.toString
         )
+      }
+    }
+  }
+
+  test("a tempo lookup on an untrusted certificate is logged as an error naming the call") {
+    val spotify = Tls.server(HttpRoutes.of[IO] { case GET -> Root / "v1" / "audio-features" / _ => Ok("{}") }.orNotFound)
+    (spotify, Tls.capturedLogs, HttpClients.resource[IO]).tupled.use { case ((port, seen), appender, clients) =>
+      for {
+        session <- Ref.of[IO, Option[SpotifySession]](Some(SpotifySession("token", "refresh")))
+        code <- Deferred[IO, String]
+        client = new SpotifyClient[IO](Tls.redirectTo(port)(clients.spotify), SpotifyCredentials("id", "secret", "refresh"), session, code)
+        live <- settings.LiveSettings.make[IO](config.lightShow)
+        engine <- SyncEngine.make[IO](config, live, client, zone, lights, new Random(1L))
+        show <- engine.showFor(domain.spotify.types.TrackId("track-1"))
+        requests <- seen
+        errors = Tls.logged(appender).filter(_.getLevel == Level.ERROR).map(_.getFormattedMessage)
+      } yield {
+        assertEquals(show.tempo, None)
+        assertEquals(requests.size, 0)
+        assert(errors.exists(m => m.contains("Spotify Tempo Lookup failed") && m.contains("SSLHandshakeException")), errors.toString)
+      }
+    }
+  }
+
+  test("signing in on an untrusted certificate is logged as an error naming the authorize call") {
+    val spotify = Tls.server(HttpRoutes.of[IO] { case GET -> Root / "authorize" => Ok("login") }.orNotFound)
+    (spotify, Tls.capturedLogs, HttpClients.resource[IO]).tupled.use { case ((port, seen), appender, clients) =>
+      for {
+        session <- Ref.of[IO, Option[SpotifySession]](None)
+        code <- Deferred[IO, String]
+        client = new SpotifyClient[IO](Tls.redirectTo(port)(clients.spotify), SpotifyCredentials("id", "secret", "refresh"), session, code)
+        live <- settings.LiveSettings.make[IO](config.lightShow)
+        engine <- SyncEngine.make[IO](config, live, client, zone, lights, new Random(1L))
+        enough = IO.sleep(20.millis).productR(IO(Tls.logged(appender))).iterateUntil(_.exists(_.getLevel == Level.ERROR)).void
+        _ <- engine.run.interruptWhen(enough.attempt).compile.toList.timeout(30.seconds)
+        requests <- seen
+        errors = Tls.logged(appender).filter(_.getLevel == Level.ERROR).map(_.getFormattedMessage)
+      } yield {
+        assertEquals(requests.size, 0)
+        assert(errors.exists(m => m.contains("Spotify Authorize failed") && m.contains("SSLHandshakeException")), errors.toString)
       }
     }
   }

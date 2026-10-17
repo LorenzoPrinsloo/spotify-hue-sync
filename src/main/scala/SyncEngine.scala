@@ -1,7 +1,7 @@
 import cats.effect.*
 import cats.syntax.all.*
 import beat.{AudioReading, BeatState}
-import client.SpotifyClient
+import client.{SpotifyClient, SpotifyTlsFailure}
 import fs2.Stream
 import domain.config.{AppConfig, LightShowConfig, PulseSettings}
 import domain.engine.{Effects, LightRole, LocalPlayback, Palette, PaletteType, Pulse, RGB, Renderer}
@@ -62,7 +62,10 @@ class SyncEngine[F[_]: Async] private (
         for {
           settings <- live.startSong
           tempo <- spotify.getTempo(trackId).handleErrorWith { err =>
-            logger.warn(s"Couldn't fetch the tempo for $trackId: $err") *> Async[F].pure(None)
+            (err match {
+              case _: SpotifyTlsFailure => logger.error(s"Couldn't fetch the tempo for $trackId: $err")
+              case _ => logger.warn(s"Couldn't fetch the tempo for $trackId: $err")
+            }) *> Async[F].pure(None)
           }
           palette <- newPalette(settings.palette)
           lit <- zoneFor(settings, before.map(_._2))

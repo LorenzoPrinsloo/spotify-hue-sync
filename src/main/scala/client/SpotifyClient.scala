@@ -26,6 +26,10 @@ import org.http4s.dsl.Http4sDsl
 
 import scala.util.Random
 
+/** A Spotify call that failed because its certificate couldn't be trusted. */
+final case class SpotifyTlsFailure(call: String, cause: Throwable)
+    extends RuntimeException(s"Spotify $call failed on its certificate: $cause", cause)
+
 class SpotifyClient[F[_]: Async: Network](
   client: Client[F],
   creds: SpotifyCredentials,
@@ -39,6 +43,16 @@ class SpotifyClient[F[_]: Async: Network](
   private val logger = Slf4jLogger.getLogger[F]
   private val random: Random = new Random()
 
+  /** Names `call` in a failure caused by TLS, so the log says which Spotify call couldn't trust the certificate. */
+  private def naming[A](call: String)(fa: F[A]): F[A] =
+    fa.adaptError {
+      case err if Iterator.iterate(err)(_.getCause).takeWhile(_ != null).take(20).exists {
+            case _: javax.net.ssl.SSLException => true
+            case _ => false
+          } =>
+        SpotifyTlsFailure(call, err)
+    }
+
   def initialAuth: F[String] =
     val redirectUri = "http://127.0.0.1:7070/callback"
     val scopes = List("user-read-playback-state", "user-read-currently-playing").mkString("%20")
@@ -50,9 +64,9 @@ class SpotifyClient[F[_]: Async: Network](
       _ <- logger.info(s"Please visit: $authUrl")
       // With a valid session cookie this lands on the callback with the code; otherwise it's Spotify's login page, and
       // the code comes when the authorize URL is opened in a browser. Either way the page itself isn't needed.
-      _ <- client.run(Request[F](Method.GET, Uri.unsafeFromString(authUrl)).putHeaders(Header.Raw(ci"Cookie",
-            s"sp_dc=${sys.env.getOrElse("SPOTIFY_SP_DC", "")}")))
-        .use(_.body.compile.drain)
+      _ <- naming("Authorize")(client.run(Request[F](Method.GET, Uri.unsafeFromString(authUrl)).putHeaders(Header.Raw(ci"Cookie",
+              s"sp_dc=${sys.env.getOrElse("SPOTIFY_SP_DC", "")}")))
+          .use(_.body.compile.drain))
       code <- authCodeDeferred.get
       authHeader = Authorization(BasicCredentials(creds.clientId, creds.clientSecret))
       form = UrlForm(
@@ -63,12 +77,12 @@ class SpotifyClient[F[_]: Async: Network](
       req = Request[F](Method.POST, authUri)
         .withEntity(form)
         .putHeaders(authHeader)
-      resp <- client.expectOr[SpotifyToken](req) { errorRes =>
+      resp <- naming("Code Exchange")(client.expectOr[SpotifyToken](req) { errorRes =>
         errorRes.as[Json].flatMap { body =>
           logger.error(s"Spotify Exchange Failed. Body: $body") *>
             Async[F].raiseError(new RuntimeException(s"Spotify Error ${errorRes.status}: $body"))
         }
-      }
+      })
       _ <- session.set(Some(SpotifySession(resp.access_token, resp.refresh_token.getOrElse(creds.refreshToken))))
     yield resp.access_token
 
@@ -90,11 +104,11 @@ class SpotifyClient[F[_]: Async: Network](
       req = Request[F](Method.POST, authUri)
         .withEntity(UrlForm("grant_type" -> "refresh_token", "refresh_token" -> refresh))
         .putHeaders(Authorization(BasicCredentials(creds.clientId, creds.clientSecret)))
-      resp <- client.expectOr[SpotifyToken](req) { errorRes =>
+      resp <- naming("Renew")(client.expectOr[SpotifyToken](req) { errorRes =>
         errorRes.bodyText.compile.string.flatMap { body =>
           Async[F].raiseError(new RuntimeException(s"Couldn't renew the Spotify access token, ${errorRes.status}: $body"))
         }
-      }
+      })
       _ <- session.set(Some(SpotifySession(resp.access_token, resp.refresh_token.getOrElse(refresh))))
       _ <- logger.info("Renewed the Spotify access token")
     yield resp.access_token
@@ -103,22 +117,24 @@ class SpotifyClient[F[_]: Async: Network](
    * Sends `request` with the access token. If Spotify rejects the token, renews it and sends the request once more,
    * so `read` only sees a 401 if the renewed token is rejected too.
    */
-  private def authorised[A](request: Request[F])(read: Response[F] => F[A]): F[A] =
+  private def authorised[A](call: String, request: Request[F])(read: Response[F] => F[A]): F[A] =
     def send(token: String): Resource[F, Response[F]] =
       client.run(request.putHeaders(Authorization(Credentials.Token(AuthScheme.Bearer, token))))
 
     getOrRefresh
-      .flatMap(token => send(token).use(resp => if resp.status == Status.Unauthorized then Async[F].pure(None) else read(resp).map(Some(_))))
+      .flatMap(token =>
+        naming(call)(send(token).use(resp => if resp.status == Status.Unauthorized then Async[F].pure(None) else read(resp).map(Some(_))))
+      )
       .flatMap {
         case Some(result) => Async[F].pure(result)
-        case None => renew.flatMap(send(_).use(read))
+        case None => renew.flatMap(token => naming(call)(send(token).use(read)))
       }
 
   /**
    * Port of fetch-spotify-playback-state.ts
    */
   def getPlaybackState: F[Option[PlaybackState]] =
-    authorised(GET(apiUri / "me" / "player")) { resp =>
+    authorised("Playback Poll", GET(apiUri / "me" / "player")) { resp =>
       if resp.status == Status.NoContent then Async[F].pure(None)
       else resp.as[PlaybackState].map(Some(_))
     }
@@ -128,7 +144,7 @@ class SpotifyClient[F[_]: Async: Network](
    * (the endpoint is restricted for newer Spotify apps).
    */
   def getTempo(id: TrackId): F[Option[Double]] =
-    authorised(GET(apiUri / "audio-features" / id.value)) { resp =>
+    authorised("Tempo Lookup", GET(apiUri / "audio-features" / id.value)) { resp =>
       if resp.status.isSuccess then resp.as[Json].map(_.hcursor.downField("tempo").as[Double].toOption.filter(_ > 0))
       else Async[F].pure(None)
     }

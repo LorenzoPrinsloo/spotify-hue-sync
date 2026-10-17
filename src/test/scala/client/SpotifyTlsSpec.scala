@@ -26,6 +26,9 @@ class SpotifyTlsSpec extends CatsEffectSuite {
   private def assertTlsFailure[A](result: Either[Throwable, A]): Unit =
     assert(result.left.exists(Tls.isTlsFailure), result.toString)
 
+  private def assertNames[A](result: Either[Throwable, A], call: String): Unit =
+    assert(result.left.exists({ case SpotifyTlsFailure(`call`, cause) => Tls.isTlsFailure(cause); case _ => false }), result.toString)
+
   private def fake(code: Option[Deferred[IO, String]] = None, firstTokenRejected: Boolean = false): Resource[IO, (Int, IO[List[Request[IO]]])] =
     Resource.eval(Ref.of[IO, Int](0)).flatMap { playerCalls =>
       Tls.server(HttpRoutes.of[IO] {
@@ -61,25 +64,49 @@ class SpotifyTlsSpec extends CatsEffectSuite {
 
   test("the playback poll fails and sends no bearer token to an untrusted certificate") {
     fake().use { (port, seen) =>
-      untrusted(port, signedIn)(_.getPlaybackState).flatMap(r => seen.map(s => (assertTlsFailure(r), assertEquals(s.size, 0))))
+      untrusted(port, signedIn)(_.getPlaybackState).flatMap(r =>
+        seen.map(s => (assertTlsFailure(r), assertNames(r, "Playback Poll"), assertEquals(s.size, 0)))
+      )
     }
   }
 
   test("the tempo request fails and sends no bearer token to an untrusted certificate") {
     fake().use { (port, seen) =>
-      untrusted(port, signedIn)(_.getTempo(TrackId("track-1"))).flatMap(r => seen.map(s => (assertTlsFailure(r), assertEquals(s.size, 0))))
+      untrusted(port, signedIn)(_.getTempo(TrackId("track-1"))).flatMap(r =>
+        seen.map(s => (assertTlsFailure(r), assertNames(r, "Tempo Lookup"), assertEquals(s.size, 0)))
+      )
     }
   }
 
   test("signing in against an untrusted certificate sends neither the cookie nor the client secret") {
     fake().use { (port, seen) =>
-      untrusted(port, None)(_.getPlaybackState).flatMap(r => seen.map(s => (assertTlsFailure(r), assertEquals(s.size, 0))))
+      untrusted(port, None)(_.getPlaybackState).flatMap(r =>
+        seen.map(s => (assertTlsFailure(r), assertNames(r, "Authorize"), assertEquals(s.size, 0)))
+      )
     }
   }
 
   test("renewing against an untrusted certificate sends no client secret") {
     fake().use { (port, seen) =>
-      untrusted(port, signedIn)(_.renew).flatMap(r => seen.map(s => (assertTlsFailure(r), assertEquals(s.size, 0))))
+      untrusted(port, signedIn)(_.renew).flatMap(r => seen.map(s => (assertTlsFailure(r), assertNames(r, "Renew"), assertEquals(s.size, 0))))
+    }
+  }
+
+  test("the code exchange fails and sends no client secret to an untrusted certificate") {
+    fake().use { (port, seen) =>
+      HttpClients.resource[IO].use { clients =>
+        val authorizeAnswered = Client[IO] { req =>
+          if (req.uri.path.renderString == "/authorize") Resource.pure(Response[IO](Status.Ok))
+          else Tls.redirectTo(port)(clients.spotify).run(req)
+        }
+        for {
+          code <- Deferred[IO, String]
+          _ <- code.complete("the-code")
+          client <- spotify(authorizeAnswered, None, code)
+          r <- client.getPlaybackState.attempt
+          s <- seen
+        } yield (assertTlsFailure(r), assertNames(r, "Code Exchange"), assertEquals(s.size, 0))
+      }.timeout(10.seconds)
     }
   }
 
