@@ -1,6 +1,7 @@
 package client
 
 import fs2.io.file.Path
+import io.circe.Encoder
 
 /** Why the refresh token file couldn't be used as it is. Messages name the file and the reason, never the token. */
 enum TokenFileProblem(val message: String) derives CanEqual {
@@ -14,14 +15,13 @@ enum TokenFileProblem(val message: String) derives CanEqual {
   case Undeletable(path: Path, reason: String) extends TokenFileProblem("Couldn't delete or empty the rejected refresh token file")
   case NoLocation extends TokenFileProblem("No location for the refresh token file; keeping it in memory")
 
-  def context: Map[String, String] = this match {
-    case Unreadable(path, reason) => Map("path" -> path.toString, "reason" -> reason)
-    case Empty(path) => Map("path" -> path.toString)
-    case Malformed(path) => Map("path" -> path.toString)
-    case LoosePermissions(path) => Map("path" -> path.toString)
-    case NoPosixPermissions(path) => Map("path" -> path.toString)
-    case Unwritable(path, reason) => Map("path" -> path.toString, "reason" -> reason)
-    case Undeletable(path, reason) => Map("path" -> path.toString, "reason" -> reason)
-    case NoLocation => Map.empty
-  }
+  def context: Map[String, String] =
+    Encoder.AsObject[TokenFileProblem].encodeObject(this).values.headOption
+      .flatMap(_.asObject)
+      .fold(Map.empty[String, String])(_.toMap.flatMap((key, value) => value.asString.map(key -> _)))
+}
+
+object TokenFileProblem {
+  private given Encoder[Path] = Encoder[String].contramap(_.toString)
+  given Encoder.AsObject[TokenFileProblem] = Encoder.AsObject.derived
 }
