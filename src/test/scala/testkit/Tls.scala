@@ -1,7 +1,8 @@
 package testkit
 
 import cats.effect.{IO, Ref, Resource}
-import ch.qos.logback.classic.{Logger, spi}
+import cats.syntax.functor.*
+import ch.qos.logback.classic.{Level, Logger, spi}
 import ch.qos.logback.core.read.ListAppender
 import com.comcast.ip4s.*
 import fs2.io.net.Network
@@ -44,6 +45,16 @@ object Tls {
 
   def logged(appender: ListAppender[spi.ILoggingEvent]): List[spi.ILoggingEvent] =
     appender.synchronized(List.from(appender.list.toArray(Array.empty[spi.ILoggingEvent])))
+
+  def loggingAt(name: String, level: Level): Resource[IO, Unit] =
+    Resource
+      .make(IO {
+        val logger = LoggerFactory.getLogger(name).asInstanceOf[Logger]
+        val previous = logger.getLevel
+        logger.setLevel(level)
+        previous
+      })(previous => IO(LoggerFactory.getLogger(name).asInstanceOf[Logger].setLevel(previous)))
+      .void
 
   def capturedLogs: Resource[IO, ListAppender[spi.ILoggingEvent]] =
     Resource.make(IO {

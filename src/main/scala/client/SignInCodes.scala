@@ -1,7 +1,7 @@
 package client
 
 import cats.Applicative
-import cats.effect.Deferred
+import cats.effect.{Concurrent, Deferred, Ref}
 import cats.syntax.all.*
 
 /** Carries the code from the callback server to the browser sign-in waiting for it, one code per attempt. */
@@ -21,5 +21,27 @@ object SignInCodes {
     new SignInCodes[F] {
       def attempt: F[F[String]] = deferred.get.pure[F]
       def hand(code: String): F[Boolean] = deferred.complete(code)
+    }
+
+  /** Attempts that join while one is pending; a hand completes the pending attempt and spends it. */
+  def make[F[_]: Concurrent]: F[SignInCodes[F]] =
+    Ref.of[F, Option[Deferred[F, String]]](None).map { pending =>
+      new SignInCodes[F] {
+        def attempt: F[F[String]] =
+          Deferred[F, String].flatMap { fresh =>
+            pending.modify {
+              case Some(current) => (Some(current), current.get)
+              case None => (Some(fresh), fresh.get)
+            }
+          }
+
+        def hand(code: String): F[Boolean] =
+          Concurrent[F].uncancelable { _ =>
+            pending.modify {
+              case Some(current) => (None, current.complete(code))
+              case None => (None, false.pure[F])
+            }.flatten
+          }
+      }
     }
 }

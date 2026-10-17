@@ -15,7 +15,7 @@ sequenceDiagram
     App->>App: log the authorize URL
     App->>Acc: GET /authorize (with SPOTIFY_SP_DC cookie if set)
     Acc-->>CB: redirect to /callback?code=...
-    CB->>App: complete Deferred with the code
+    CB->>App: hand the code to the waiting sign-in
     App->>Acc: POST /api/token (code + client credentials)
     Acc-->>App: access and refresh tokens
     App->>App: store both in a Ref
@@ -23,6 +23,7 @@ sequenceDiagram
 
 - The first call to Spotify triggers the sign-in. The app logs the authorize URL; opening it in a browser completes the flow.
 - If `SPOTIFY_SP_DC` is set, the app also requests the authorize URL with that session cookie, which can complete the consent step without a browser.
+- A failed code exchange fails that poll. The next poll logs a new URL to approve, and no restart is needed.
 - The callback server listens only on `127.0.0.1:7070`, so it is not reachable from other machines.
 - Access tokens expire after about an hour. When Spotify rejects one, the app swaps the refresh token for a new access token (`POST /api/token` with `grant_type=refresh_token`) and sends the request again. If that fails, the poll fails with an error in the log rather than being read as "nothing playing".
 

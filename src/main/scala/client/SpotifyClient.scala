@@ -71,13 +71,14 @@ class SpotifyClient[F[_]: Async: Network](
       s"https://accounts.spotify.com/authorize?client_id=${creds.clientId}&response_type=code&redirect_uri=$redirectUri&scope=$scopes&state=$state"
 
     for
+      waitForCode <- codes.attempt
       _ <- logger.info(s"Please visit: $authUrl")
       // With a valid session cookie this lands on the callback with the code; otherwise it's Spotify's login page, and
       // the code comes when the authorize URL is opened in a browser. Either way the page itself isn't needed.
       _ <- naming("Authorize")(client.run(Request[F](Method.GET, Uri.unsafeFromString(authUrl)).putHeaders(Header.Raw(ci"Cookie",
               s"sp_dc=${sys.env.getOrElse("SPOTIFY_SP_DC", "")}")))
           .use(_.body.compile.drain))
-      code <- codes.attempt.flatten
+      code <- waitForCode
       authHeader = Authorization(BasicCredentials(creds.clientId, creds.clientSecret))
       form = UrlForm(
         "grant_type" -> "authorization_code",
@@ -191,7 +192,7 @@ object SpotifyClient:
   def resource[F[_]: Async: Network](client: Client[F], creds: SpotifyCredentials): Resource[F, SpotifyClient[F]] =
     for
       session <- Resource.eval(Ref.of[F, Option[SpotifySession]](None))
-      codes <- Resource.eval(Deferred[F, String]).map(SignInCodes.once[F])
+      codes <- Resource.eval(SignInCodes.make[F])
       _ <- serverResource(codes)
     yield new SpotifyClient[F](client, creds, session, codes)
 
