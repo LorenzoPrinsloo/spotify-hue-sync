@@ -45,13 +45,19 @@ class SpotifyClient[F[_]: Async: Network](
 
   /** Names `call` in a failure caused by TLS, so the log says which Spotify call couldn't trust the certificate. */
   private def naming[A](call: String)(fa: F[A]): F[A] =
-    fa.adaptError {
-      case err if Iterator.iterate(err)(_.getCause).takeWhile(_ != null).take(20).exists {
-            case _: javax.net.ssl.SSLException => true
-            case _ => false
-          } =>
-        SpotifyTlsFailure(call, err)
-    }
+    fa.adaptError { case err if causedByTls(err) => SpotifyTlsFailure(call, err) }
+
+  /** Bounded so a cyclic cause chain can't loop forever. */
+  private val MaxCauseDepth = 20
+
+  private def causedByTls(err: Throwable): Boolean =
+    Iterator
+      .unfold[Throwable, Option[Throwable]](Some(err))(_.map(t => (t, Option(t.getCause))))
+      .take(MaxCauseDepth)
+      .exists {
+        case _: javax.net.ssl.SSLException => true
+        case _ => false
+      }
 
   def initialAuth: F[String] =
     val redirectUri = "http://127.0.0.1:7070/callback"
