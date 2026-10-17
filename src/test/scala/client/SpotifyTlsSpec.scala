@@ -11,7 +11,6 @@ import org.http4s.dsl.io.*
 import org.http4s.headers.Authorization
 import testkit.Tls
 
-import javax.net.ssl.SSLException
 import scala.concurrent.duration.*
 
 class SpotifyTlsSpec extends CatsEffectSuite {
@@ -24,16 +23,8 @@ class SpotifyTlsSpec extends CatsEffectSuite {
 
   private val fresh = Authorization(Credentials.Token(AuthScheme.Bearer, "fresh"))
 
-  private def causes(e: Throwable): List[Throwable] =
-    Iterator.iterate(e)(_.getCause).takeWhile(_ != null).take(20).toList
-
-  private def isTlsFailure(e: Throwable): Boolean = causes(e).exists {
-    case _: SSLException => true
-    case _ => false
-  }
-
   private def assertTlsFailure[A](result: Either[Throwable, A]): Unit =
-    assert(result.left.exists(isTlsFailure), result.toString)
+    assert(result.left.exists(Tls.isTlsFailure), result.toString)
 
   private def fake(code: Option[Deferred[IO, String]] = None, firstTokenRejected: Boolean = false): Resource[IO, (Int, IO[List[Request[IO]]])] =
     Resource.eval(Ref.of[IO, Int](0)).flatMap { playerCalls =>

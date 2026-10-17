@@ -15,13 +15,9 @@ object HttpClients {
   def resource[F[_]: Async: Network]: Resource[F, HttpClients[F]] =
     Resource.eval(Network[F].tlsContext.system).flatMap(trusting[F])
 
-  def trusting[F[_]: Async: Network](trusted: TLSContext[F]): Resource[F, HttpClients[F]] = {
-    val spotify = EmberClientBuilder.default[F].withTLSContext(trusted).build.map(FollowRedirect(2)(_))
+  def trusting[F[_]: Async: Network](trusted: TLSContext[F]): Resource[F, HttpClients[F]] =
+    (client(trusted), Resource.eval(Network[F].tlsContext.insecure).flatMap(client[F])).mapN(HttpClients(_, _))
 
-    /** The bridge serves a self-signed certificate. */
-    val bridge = Resource.eval(Network[F].tlsContext.insecure).flatMap { insecure =>
-      EmberClientBuilder.default[F].withTLSContext(insecure).build.map(FollowRedirect(2)(_))
-    }
-    (spotify, bridge).mapN(HttpClients(_, _))
-  }
+  private def client[F[_]: Async: Network](ctx: TLSContext[F]): Resource[F, Client[F]] =
+    EmberClientBuilder.default[F].withTLSContext(ctx).build.map(FollowRedirect(2)(_))
 }

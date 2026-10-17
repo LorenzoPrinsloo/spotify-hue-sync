@@ -1,5 +1,3 @@
-import ch.qos.logback.classic.{Logger, spi}
-import ch.qos.logback.core.read.ListAppender
 import cats.effect.{ExitCode, IO, Ref, Resource}
 import cats.syntax.all.*
 import com.comcast.ip4s.*
@@ -7,7 +5,6 @@ import fs2.io.net.Network
 import munit.CatsEffectSuite
 import org.http4s.*
 import org.http4s.dsl.io.*
-import org.slf4j.LoggerFactory
 import pureconfig.ConfigSource
 
 import scala.concurrent.duration.*
@@ -49,14 +46,6 @@ class MainSpec extends CatsEffectSuite {
         .drain
         .background
     } yield (address.port.value, accepted.get)
-
-  private def capturedLogs: Resource[IO, ListAppender[spi.ILoggingEvent]] =
-    Resource.make(IO {
-      val appender = new ListAppender[spi.ILoggingEvent]
-      appender.start()
-      LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME).asInstanceOf[Logger].addAppender(appender)
-      appender
-    })(appender => IO(LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME).asInstanceOf[Logger].detachAppender(appender)))
 
   List("an upper-case key" -> digits.replace('1', 'A'), "a key with a trailing newline" -> (digits + "\n")).foreach { (name, psk) =>
     test(s"start gets past config validation and connects to the bridge with $name") {
@@ -108,7 +97,7 @@ class MainSpec extends CatsEffectSuite {
 
   badKeys.foreach { (name, psk) =>
     test(s"start exits with an error and never contacts the bridge for $name") {
-      (bridgeListener, capturedLogs).tupled.use { case ((port, connections), appender) =>
+      (bridgeListener, Tls.capturedLogs).tupled.use { case ((port, connections), appender) =>
         Main.start(source(psk, port)).timeout(20.seconds).flatMap { exit =>
           connections.map { count =>
             val messages = appender.list.asScala.toList.map(_.getFormattedMessage)

@@ -1,7 +1,6 @@
 import cats.effect.{Deferred, IO, Ref, Resource}
 import cats.syntax.all.*
-import ch.qos.logback.classic.{Level, Logger, spi}
-import ch.qos.logback.core.read.ListAppender
+import ch.qos.logback.classic.Level
 import client.{HttpClients, SpotifyClient}
 import domain.config.*
 import domain.hue.{HueCredentials, MusicArea, Psk, Zone}
@@ -10,7 +9,6 @@ import munit.CatsEffectSuite
 import org.http4s.*
 import org.http4s.client.Client
 import org.http4s.dsl.io.*
-import org.slf4j.LoggerFactory
 import testkit.Tls
 
 import scala.concurrent.duration.*
@@ -32,17 +30,9 @@ class SpotifyTlsEngineSpec extends CatsEffectSuite {
     pollingIntervalMs = 100
   )
 
-  private def capturedLogs: Resource[IO, ListAppender[spi.ILoggingEvent]] =
-    Resource.make(IO {
-      val appender = new ListAppender[spi.ILoggingEvent]
-      appender.start()
-      LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME).asInstanceOf[Logger].addAppender(appender)
-      appender
-    })(appender => IO(LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME).asInstanceOf[Logger].detachAppender(appender)))
-
   test("the engine keeps polling and logs the certificate failure when Spotify's certificate is untrusted") {
     val spotify = Tls.server(HttpRoutes.of[IO] { case GET -> Root / "v1" / "me" / "player" => Ok("{}") }.orNotFound)
-    (spotify, capturedLogs, HttpClients.resource[IO]).tupled.use { case ((port, seen), appender, clients) =>
+    (spotify, Tls.capturedLogs, HttpClients.resource[IO]).tupled.use { case ((port, seen), appender, clients) =>
       for {
         polls <- Ref.of[IO, Int](0)
         counting = Client[IO] { req =>

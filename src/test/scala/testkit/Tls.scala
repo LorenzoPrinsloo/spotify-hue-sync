@@ -1,12 +1,17 @@
 package testkit
 
 import cats.effect.{IO, Ref, Resource}
+import ch.qos.logback.classic.{Logger, spi}
+import ch.qos.logback.core.read.ListAppender
 import com.comcast.ip4s.*
 import fs2.io.net.Network
 import fs2.io.net.tls.TLSContext
 import org.http4s.*
 import org.http4s.client.Client
 import org.http4s.ember.server.EmberServerBuilder
+import org.slf4j.LoggerFactory
+
+import javax.net.ssl.SSLException
 
 object Tls {
 
@@ -28,4 +33,20 @@ object Tls {
       val authority = Uri.Authority(host = Uri.RegName("localhost"), port = Some(port))
       client.run(req.withUri(req.uri.copy(authority = Some(authority))))
     }
+
+  def causes(e: Throwable): List[Throwable] =
+    Iterator.iterate(e)(_.getCause).takeWhile(_ != null).take(20).toList
+
+  def isTlsFailure(e: Throwable): Boolean = causes(e).exists {
+    case _: SSLException => true
+    case _ => false
+  }
+
+  def capturedLogs: Resource[IO, ListAppender[spi.ILoggingEvent]] =
+    Resource.make(IO {
+      val appender = new ListAppender[spi.ILoggingEvent]
+      appender.start()
+      LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME).asInstanceOf[Logger].addAppender(appender)
+      appender
+    })(appender => IO(LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME).asInstanceOf[Logger].detachAppender(appender)))
 }
