@@ -10,16 +10,38 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+        with:
+          fetch-depth: 0
+      # A change to documentation alone (an ADR, the README) can't break the build: no test reads documentation. It
+      # still reports `check`, so a required check never waits; anything else, or a base it can't find, runs it all.
+      - name: Is it documentation only?
+        id: scope
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          docs_only=false
+          if [ -n "$BASE" ] && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            changed="$(git diff --name-only "$BASE" HEAD)"
+            printf 'Changed:\n%s\n' "$changed"
+            if [ -n "$changed" ] && ! printf '%s\n' "$changed" | grep -qvE '^docs/|\.md$'; then
+              docs_only=true
+              echo "Only documentation changed, so \`sbt check\` was skipped." >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
+      - if: steps.scope.outputs.docs_only != 'true'
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 21
           cache: sbt
-      - uses: sbt/setup-sbt@v1
+      - if: steps.scope.outputs.docs_only != 'true'
+        uses: sbt/setup-sbt@v1
       - name: Lint, test and check coverage
+        if: steps.scope.outputs.docs_only != 'true'
         run: sbt check
       - name: Keep the coverage report
-        if: always()
+        if: always() && steps.scope.outputs.docs_only != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
