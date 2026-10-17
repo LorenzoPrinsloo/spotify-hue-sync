@@ -43,6 +43,15 @@ class LightShowConfigSpec extends FunSuite {
     assertEquals(LightShowConfig().syncOffsetMs, -150L)
   }
 
+  test("album cover colours are on unless configured off") {
+    assertEquals(load().map(_.lightShow.albumCoverColours), Right(true))
+    assertEquals(load("light-show.album-cover-colours = false").map(_.lightShow.albumCoverColours), Right(false))
+  }
+
+  test("a non-boolean album cover colours value is rejected") {
+    assert(load("""light-show.album-cover-colours = "maybe"""").isLeft)
+  }
+
   test("every palette name can be configured") {
     PaletteType.names.foreach { (name, mode) =>
       assertEquals(load(s"""light-show.palette = "$name"""").map(_.lightShow.palette), Right(mode), name)

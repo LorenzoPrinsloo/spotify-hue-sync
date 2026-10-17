@@ -235,7 +235,7 @@ object Sections {
   val allLights: Section = Section(
     title = "All lights",
     intro = "How brightness and flashes follow the music, the colours each song gets, and what the lights do while nothing plays.",
-    controls = List(Control.Palette, Control.SongPalette, Control.RestingColour),
+    controls = List(Control.Palette, Control.AlbumCoverColours, Control.SongPalette, Control.RestingColour),
     sliders = List(
       Slider(
         key = "reactive.quietest",

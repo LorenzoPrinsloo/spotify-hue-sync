@@ -5,7 +5,8 @@ import io.circe.Codec
 
 /**
  * The light show's settings. `area` is the entertainment area to play on, by name; without one, the app uses
- * `hue.zone-id`, or the bridge's only music area.
+ * `hue.zone-id`, or the bridge's only music area. `albumCoverColours` builds each song's palette from its album cover's
+ * colour rather than a random one.
  */
 case class LightShowConfig(
   palette: PaletteType = PaletteType.Analogous,
@@ -18,7 +19,8 @@ case class LightShowConfig(
   frameIntervalMs: Long = 16,
   pulse: PulseSettings = PulseSettings(),
   pause: PauseSettings = PauseSettings(),
-  area: Option[String] = None
+  area: Option[String] = None,
+  albumCoverColours: Boolean = true
 ) derives Codec.AsObject
 
 object LightShowConfig {

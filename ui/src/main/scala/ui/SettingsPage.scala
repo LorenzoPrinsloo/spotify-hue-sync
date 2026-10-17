@@ -109,6 +109,7 @@ final class SettingsPage {
     case Control.Roles => roles
     case Control.Reactions => reactionsSwitch
     case Control.Palette => paletteChoice
+    case Control.AlbumCoverColours => albumCoverSwitch
     case Control.SongPalette => songColours
     case Control.RestingColour => restingColour
     case Control.FixedSettings => fixedSettings
@@ -155,6 +156,21 @@ final class SettingsPage {
         ),
         span("React to the music (and use the light roles)")
       )
+    )
+
+  private def albumCoverSwitch: HtmlElement =
+    div(
+      cls := "field",
+      marked("album-cover-colours"),
+      label(
+        input(
+          typ := "checkbox",
+          controlled(checked <-- draft.signal.map(_.exists(_.albumCoverColours)),
+            onClick.mapToChecked --> (on => edit(_.copy(albumCoverColours = on))))
+        ),
+        span("Take each song's colours from its album cover")
+      ),
+      p(cls := "help", "A random colour is used when the cover is missing, slow or has no vivid colour.")
     )
 
   private def describe(area: MusicArea): String = {
