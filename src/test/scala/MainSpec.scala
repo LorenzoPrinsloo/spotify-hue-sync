@@ -100,11 +100,11 @@ class MainSpec extends CatsEffectSuite {
       (bridgeListener, Tls.capturedLogs).tupled.use { case ((port, connections), appender) =>
         Main.start(source(psk, port)).timeout(20.seconds).flatMap { exit =>
           connections.map { count =>
-            val messages = appender.list.asScala.toList.map(_.getFormattedMessage)
+            val messages = Tls.logged(appender).map(_.getFormattedMessage)
             val windows = psk.sliding(4).filter(_.length == 4).toList
             assertEquals(exit, ExitCode.Error)
             assertEquals(count, 0)
-            val errors = appender.list.asScala.toList.filter(_.getLevel == ch.qos.logback.classic.Level.ERROR).map(_.getFormattedMessage)
+            val errors = Tls.logged(appender).filter(_.getLevel == ch.qos.logback.classic.Level.ERROR).map(_.getFormattedMessage)
             assert(errors.exists(m => m.contains("HUE_PSK") && m.contains("32 hex digits")), errors.toString)
             assert(!messages.exists(m => windows.exists(m.contains)), "a log message contains part of the key")
           }

@@ -42,6 +42,9 @@ object Tls {
     case _ => false
   }
 
+  def logged(appender: ListAppender[spi.ILoggingEvent]): List[spi.ILoggingEvent] =
+    appender.synchronized(List.from(appender.list.toArray(Array.empty[spi.ILoggingEvent])))
+
   def capturedLogs: Resource[IO, ListAppender[spi.ILoggingEvent]] =
     Resource.make(IO {
       val appender = new ListAppender[spi.ILoggingEvent]

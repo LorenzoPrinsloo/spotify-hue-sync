@@ -43,10 +43,11 @@ class SpotifyTlsEngineSpec extends CatsEffectSuite {
         client = new SpotifyClient[IO](counting, SpotifyCredentials("id", "secret", "refresh"), session, code)
         live <- settings.LiveSettings.make[IO](config.lightShow)
         engine <- SyncEngine.make[IO](config, live, client, zone, lights, new Random(1L))
-        frames <- engine.run.interruptAfter(1500.millis).compile.toList
+        enough = IO.sleep(20.millis).productR(polls.get).iterateUntil(_ >= 3).void
+        frames <- engine.run.interruptWhen(enough.attempt).compile.toList.timeout(30.seconds)
         attempted <- polls.get
         requests <- seen
-        errors = appender.list.asScala.toList
+        errors = Tls.logged(appender)
           .filter(e => e.getLevel == Level.ERROR && e.getLoggerName.contains("SyncEngine"))
           .map(_.getFormattedMessage)
       } yield {
