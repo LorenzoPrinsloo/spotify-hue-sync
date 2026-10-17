@@ -28,7 +28,7 @@ class SyncEngineRunSpec extends CatsEffectSuite {
 
   private def config(show: LightShowConfig): AppConfig =
     AppConfig(
-      SpotifyCredentials("id", "secret", "refresh"),
+      SpotifyCredentials("id", "secret", Some("refresh")),
       HueConfig(HueCredentials("10.0.0.2", "user", Psk.parse("00112233445566778899aabbccddeeff").toOption.get), Some(zone.id)),
       pollingIntervalMs = 1000,
       lightShow = show
@@ -69,7 +69,7 @@ class SyncEngineRunSpec extends CatsEffectSuite {
         case GET -> Root / "v1" / "audio-features" / _ =>
           tempoCalls.update(_ + 1) *> setup.tempo
       }.orNotFound
-      spotify = new SpotifyClient[IO](Client.fromHttpApp(app), SpotifyCredentials("id", "secret", "refresh"), session, code)
+      spotify = new SpotifyClient[IO](Client.fromHttpApp(app), SpotifyCredentials("id", "secret", Some("refresh")), session, code)
       live <- LiveSettings.make[IO](setup.show)
       built <- SyncEngine.make[IO](config(setup.show), live, spotify, zone, lights, new Random(setup.seed), setup.audio)
     } yield (built, live)

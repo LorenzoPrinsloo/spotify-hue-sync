@@ -10,16 +10,16 @@ class SpotifyCredentialsSpec extends ScalaCheckSuite {
   private val blank = Gen.stringOf(space)
 
   property("a blank refresh token is not configured") {
-    forAll(blank)(b => SpotifyCredentials("id", "secret", b).configuredRefreshToken == None)
+    forAll(blank)(b => SpotifyCredentials("id", "secret", Some(b)).configuredRefreshToken == None)
   }
 
   property("a refresh token is configured without its surrounding whitespace") {
     forAll(Gen.identifier, blank, blank) { (core, before, after) =>
-      SpotifyCredentials("id", "secret", before + core + after).configuredRefreshToken == Some(core)
+      SpotifyCredentials("id", "secret", Some(before + core + after)).configuredRefreshToken == Some(core)
     }
   }
 
-  test("the refresh token defaults to empty") {
-    assertEquals(SpotifyCredentials("id", "secret").refreshToken, "")
+  test("the refresh token defaults to none") {
+    assertEquals(SpotifyCredentials("id", "secret").refreshToken, None)
   }
 }

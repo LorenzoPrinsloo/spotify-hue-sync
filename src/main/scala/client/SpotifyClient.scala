@@ -93,7 +93,10 @@ class SpotifyClient[F[_]: Async: Network](
             Async[F].raiseError(new RuntimeException(s"Spotify Error ${errorRes.status}: $body"))
         }
       })
-      _ <- session.set(Some(SpotifySession(resp.access_token, resp.refresh_token.getOrElse(creds.refreshToken))))
+      refresh <- resp.refresh_token.fold(Async[F].raiseError[String](new RuntimeException("Spotify sent no refresh token with the code exchange")))(
+        Async[F].pure
+      )
+      _ <- session.set(Some(SpotifySession(resp.access_token, refresh)))
     yield resp.access_token
 
   /**
@@ -110,8 +113,10 @@ class SpotifyClient[F[_]: Async: Network](
    */
   def renew: F[String] =
     for
-      refresh <- session.get.map(_.fold(creds.refreshToken)(_.refreshToken))
-      token <- refreshWith("Renew", refresh)
+      token <- session.get.flatMap {
+        case Some(s) => refreshWith("Renew", s.refreshToken)
+        case None => creds.configuredRefreshToken.fold(initialAuth)(refreshWith("Renew", _))
+      }
       _ <- logger.info("Renewed the Spotify access token")
     yield token
 

@@ -25,7 +25,7 @@ class SpotifyTlsEngineSpec extends CatsEffectSuite {
   }
 
   private val config = AppConfig(
-    SpotifyCredentials("id", "secret", "refresh"),
+    SpotifyCredentials("id", "secret", Some("refresh")),
     HueConfig(HueCredentials("10.0.0.2", "user", Psk.parse("00112233445566778899aabbccddeeff").toOption.get), Some(zone.id)),
     pollingIntervalMs = 100
   )
@@ -40,7 +40,7 @@ class SpotifyTlsEngineSpec extends CatsEffectSuite {
         }
         session <- Ref.of[IO, Option[SpotifySession]](Some(SpotifySession("token", "refresh")))
         code <- Deferred[IO, String]
-        client = new SpotifyClient[IO](counting, SpotifyCredentials("id", "secret", "refresh"), session, code)
+        client = new SpotifyClient[IO](counting, SpotifyCredentials("id", "secret", Some("refresh")), session, code)
         live <- settings.LiveSettings.make[IO](config.lightShow)
         engine <- SyncEngine.make[IO](config, live, client, zone, lights, new Random(1L))
         enough = IO.sleep(20.millis).productR(polls.get).iterateUntil(_ >= 3).void
@@ -71,7 +71,7 @@ class SpotifyTlsEngineSpec extends CatsEffectSuite {
       for {
         session <- Ref.of[IO, Option[SpotifySession]](Some(SpotifySession("token", "refresh")))
         code <- Deferred[IO, String]
-        client = new SpotifyClient[IO](Tls.redirectTo(port)(clients.spotify), SpotifyCredentials("id", "secret", "refresh"), session, code)
+        client = new SpotifyClient[IO](Tls.redirectTo(port)(clients.spotify), SpotifyCredentials("id", "secret", Some("refresh")), session, code)
         live <- settings.LiveSettings.make[IO](config.lightShow)
         engine <- SyncEngine.make[IO](config, live, client, zone, lights, new Random(1L))
         show <- engine.showFor(domain.spotify.types.TrackId("track-1"))
@@ -91,7 +91,7 @@ class SpotifyTlsEngineSpec extends CatsEffectSuite {
       for {
         session <- Ref.of[IO, Option[SpotifySession]](None)
         code <- Deferred[IO, String]
-        client = new SpotifyClient[IO](Tls.redirectTo(port)(clients.spotify), SpotifyCredentials("id", "secret", "refresh"), session, code)
+        client = new SpotifyClient[IO](Tls.redirectTo(port)(clients.spotify), SpotifyCredentials("id", "secret", Some("refresh")), session, code)
         live <- settings.LiveSettings.make[IO](config.lightShow)
         engine <- SyncEngine.make[IO](config, live, client, zone, lights, new Random(1L))
         enough = IO.sleep(20.millis).productR(IO(Tls.logged(appender))).iterateUntil(_.exists(_.getLevel == Level.ERROR)).void

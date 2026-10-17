@@ -76,9 +76,9 @@ class LightShowConfigSpec extends FunSuite {
   }
 
   private val shippedRefreshToken = List(
-    ("set", Some("\"r\""), "r"),
-    ("empty", Some("\"\""), ""),
-    ("unset", None, "")
+    ("set", Some("\"r\""), Some("r")),
+    ("empty", Some("\"\""), Some("")),
+    ("unset", None, None)
   )
 
   shippedRefreshToken.foreach { (name, replacement, expected) =>

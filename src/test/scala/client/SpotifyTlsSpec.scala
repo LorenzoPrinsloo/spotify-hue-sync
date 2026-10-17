@@ -47,7 +47,7 @@ class SpotifyTlsSpec extends CatsEffectSuite {
 
   private def spotify(client: Client[IO], session: Option[SpotifySession], code: Deferred[IO, String]): IO[SpotifyClient[IO]] =
     Ref.of[IO, Option[SpotifySession]](session).map { ref =>
-      new SpotifyClient[IO](client, SpotifyCredentials("id", "secret", "refresh"), ref, code)
+      new SpotifyClient[IO](client, SpotifyCredentials("id", "secret", Some("refresh")), ref, code)
     }
 
   private def untrusted[A](port: Int, session: Option[SpotifySession])(use: SpotifyClient[IO] => IO[A]): IO[Either[Throwable, A]] =

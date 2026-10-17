@@ -20,7 +20,7 @@ class SpotifyRenewSpec extends ScalaCheckSuite {
     (for {
       ref <- Ref.of[IO, Option[SpotifySession]](Some(SpotifySession("expired", token)))
       deferred <- Deferred[IO, String]
-      spotify = new SpotifyClient[IO](Client.fromHttpApp(fake.orNotFound), SpotifyCredentials("id", "secret", "unused"), ref, deferred)
+      spotify = new SpotifyClient[IO](Client.fromHttpApp(fake.orNotFound), SpotifyCredentials("id", "secret", Some("unused")), ref, deferred)
       outcome <- spotify.renew.attempt
     } yield outcome).unsafeRunSync()
 
