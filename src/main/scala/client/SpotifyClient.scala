@@ -107,16 +107,25 @@ class SpotifyClient[F[_]: Async: Network](
   def renew: F[String] =
     for
       refresh <- session.get.map(_.fold(creds.refreshToken)(_.refreshToken))
-      req = Request[F](Method.POST, authUri)
-        .withEntity(UrlForm("grant_type" -> "refresh_token", "refresh_token" -> refresh))
-        .putHeaders(Authorization(BasicCredentials(creds.clientId, creds.clientSecret)))
-      resp <- naming("Renew")(client.expectOr[SpotifyToken](req) { errorRes =>
+      token <- refreshWith("Renew", refresh)
+      _ <- logger.info("Renewed the Spotify access token")
+    yield token
+
+  /**
+   * Swaps `refresh` for a new access token and stores the session, keeping `refresh` if Spotify sends no new one.
+   * A failure is a `SpotifyTokenError` named `call`.
+   */
+  private def refreshWith(call: String, refresh: String): F[String] =
+    val req = Request[F](Method.POST, authUri)
+      .withEntity(UrlForm("grant_type" -> "refresh_token", "refresh_token" -> refresh))
+      .putHeaders(Authorization(BasicCredentials(creds.clientId, creds.clientSecret)))
+    for
+      resp <- naming(call)(client.expectOr[SpotifyToken](req) { errorRes =>
         errorRes.bodyText.compile.string.flatMap { body =>
-          Async[F].raiseError(new RuntimeException(s"Couldn't renew the Spotify access token, ${errorRes.status}: $body"))
+          Async[F].raiseError(SpotifyTokenError.of(call, errorRes.status, body))
         }
       })
       _ <- session.set(Some(SpotifySession(resp.access_token, resp.refresh_token.getOrElse(refresh))))
-      _ <- logger.info("Renewed the Spotify access token")
     yield resp.access_token
 
   /**
