@@ -1,5 +1,5 @@
 ---
-description: Reviews Scala code for this project's functional idioms on the Typelevel stack — effects in F, Resource and fiber scope, Ref over shared mutable state, typed failures, immutable ADTs, refined values, Scala 3 brace syntax and givens.
+description: Reviews Scala code for this project's functional idioms on the Typelevel stack — effects in F, Resource and fiber scope, Ref over shared mutable state, typed failures, immutable ADTs, enums for closed sets, Option over empty strings and sentinels, refined values, Scala 3 brace syntax and givens.
 files: \.(scala|sbt)$
 ---
 
@@ -21,10 +21,14 @@ braceless syntax.
   outside `Main`.
 - **Typed failures**: errors are case classes or enums raised with `raiseError`, recovered by type, never by matching
   `getMessage`. Validation collects problems (`Either` or a list, as `LightShowConfig.problems` does) and config is
-  checked at startup. Absence is `Option`, never `null`, and `Option` is never an error.
-- **Immutable data**: case classes, enums and sealed traits, immutable collections. Different states are different
+  checked at startup. `Option` is never an error.
+- **Absence is `Option`**: a value that may be absent is an `Option`, never `null`, an empty string or another
+  sentinel. That includes optional config read from the environment: an unset or blank variable is `None`, not `""`.
+- **Immutable data**: case classes, enums and immutable collections. Different states are different
   types, not `Option` or `Boolean` fields whose combinations include impossible states. Constrained values use
   refined types or a smart constructor returning `Either`. No boolean blindness at call sites.
+- **Closed sets are enums**: a closed set of cases is a Scala 3 `enum`, whose cases may carry fields, not a sealed
+  abstract class or a sealed-trait hierarchy. Use those only where an enum genuinely can't express it.
 - **fs2**: streams are values. Prefer `evalMap`, `parEvalMap`, `merge`, `zip` and `metered` to hand-wired queues and
   fibers. Queues are bounded.
 - **Scala 3**: new code uses brace syntax, `given`/`using`/`summon`, extension methods and `derives`. No `implicit`,
