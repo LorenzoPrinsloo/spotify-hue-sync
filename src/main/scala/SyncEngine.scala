@@ -1,7 +1,8 @@
 import cats.effect.*
+import cats.effect.syntax.all.*
 import cats.syntax.all.*
 import beat.{AudioReading, BeatState}
-import client.{SpotifyClient, SpotifyTlsFailure}
+import client.{AlbumCovers, CoverError, SpotifyClient, SpotifyTlsFailure}
 import fs2.Stream
 import domain.config.{AppConfig, LightShowConfig, PulseSettings}
 import domain.engine.{Effects, LightRole, LocalPlayback, Palette, PaletteType, Pulse, RGB, Renderer}
@@ -12,6 +13,7 @@ import org.typelevel.log4cats.SelfAwareStructuredLogger
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 import scala.concurrent.duration.*
 import scala.util.Random
+import scala.util.control.NonFatal
 import settings.LiveSettings
 
 /**
@@ -30,7 +32,8 @@ class SyncEngine[F[_]: Async] private (
   lights: Lights[F],
   current: Ref[F, Option[(TrackId, TrackShow)]],
   random: Random,
-  audio: Stream[F, AudioReading]
+  audio: Stream[F, AudioReading],
+  covers: AlbumCovers[F]
 ):
 
   private val logger: SelfAwareStructuredLogger[F] = Slf4jLogger.getLogger[F]
@@ -41,6 +44,45 @@ class SyncEngine[F[_]: Async] private (
 
   private def paletteFrom(base: RGB, paletteType: PaletteType): F[Palette] =
     Async[F].fromOption(Palette.from(base, paletteType), new IllegalStateException(s"Couldn't make a $paletteType palette"))
+
+  private def coverFailure(trackId: TrackId, url: String, err: Throwable): F[Unit] = {
+    val detail = err match {
+      case e: CoverError =>
+        val extra = e match {
+          case CoverError.Refused(_, status) => Map("status" -> status.code.toString)
+          case CoverError.TimedOut(_, after) => Map("waited_ms" -> after.toMillis.toString)
+          case _ => Map.empty[String, String]
+        }
+        extra + ("reason" -> e.reason)
+      case _ => Map("reason" -> "failed")
+    }
+    logger.warn(Map("track_id" -> trackId.toString, "cover_url" -> url) ++ detail)(
+      s"Couldn't take the colours from the album cover for $trackId, using a random palette: ${err.getMessage}"
+    )
+  }
+
+  private def tempoFor(trackId: TrackId): F[Option[Double]] =
+    spotify.getTempo(trackId).handleErrorWith { err =>
+      (err match {
+        case _: SpotifyTlsFailure => logger.error(s"Couldn't fetch the tempo for $trackId: $err")
+        case _ => logger.warn(s"Couldn't fetch the tempo for $trackId: $err")
+      }) *> Async[F].pure(None)
+    }
+
+  private def baseDescription(fromCover: Option[RGB], base: RGB): String =
+    fromCover.fold(s"random base ${base.hex}")(_ => s"base ${base.hex} from the album cover")
+
+  /** The cover's base colour, if the setting is on and the cover arrives in time and has one. Any failure is logged and gives None. */
+  private def coverBase(trackId: TrackId, cover: Option[String], settings: LightShowConfig): F[Option[RGB]] =
+    cover.filter(_ => settings.albumCoverColours) match {
+      case None => Async[F].pure(None)
+      case Some(url) =>
+        covers.baseColour(url).start.flatMap { fiber =>
+          fiber.joinWithNever
+            .onCancel(fiber.cancel.start.void)
+            .timeoutTo(SyncEngine.CoverWait, Async[F].raiseError[Option[RGB]](CoverError.TimedOut(url, SyncEngine.CoverWait)))
+        }.handleErrorWith { case NonFatal(err) => coverFailure(trackId, url, err).as(None) }
+    }
 
   /** The lights to play `settings` on: the area they name, or else the ones `before` played on (or the first zone). */
   private def zoneFor(settings: LightShowConfig, before: Option[TrackShow]): F[Zone] = {
@@ -61,25 +103,22 @@ class SyncEngine[F[_]: Async] private (
    * The show for a track. A new track takes up the latest settings, its area's lights and a new palette; the show
    * then stays the same until the track changes, so changes from the settings page wait for the next song.
    */
-  def showFor(trackId: TrackId): F[TrackShow] =
+  def showFor(trackId: TrackId, cover: Option[String] = None): F[TrackShow] =
     current.get.flatMap {
       case Some((playing, show)) if playing == trackId => Async[F].pure(show)
       case before =>
         for {
           settings <- live.startSong
-          tempo <- spotify.getTempo(trackId).handleErrorWith { err =>
-            (err match {
-              case _: SpotifyTlsFailure => logger.error(s"Couldn't fetch the tempo for $trackId: $err")
-              case _ => logger.warn(s"Couldn't fetch the tempo for $trackId: $err")
-            }) *> Async[F].pure(None)
-          }
-          base <- randomBase
+          (tempo, fromCover) <- Async[F].both(tempoFor(trackId), coverBase(trackId, cover, settings))
+          base <- fromCover.fold(randomBase)(Async[F].pure)
           palette <- paletteFrom(base, settings.palette)
           lit <- zoneFor(settings, before.map(_._2))
           created = TrackShow(tempo, palette, settings, lit, base)
           _ <- current.set(Some(trackId -> created))
           source = tempo.fold(s"default ${settings.defaultBpm} BPM")(t => s"track tempo $t BPM")
-          _ <- logger.info(s"New show for $trackId: pulsing at ${created.bpm} BPM ($source), palette ${settings.palette}:\n${palette.show}")
+          _ <- logger.info(
+            s"New show for $trackId: pulsing at ${created.bpm} BPM ($source), palette ${settings.palette}, ${baseDescription(fromCover, base)}:\n${palette.show}"
+          )
         } yield created
     }
 
@@ -152,7 +191,7 @@ class SyncEngine[F[_]: Async] private (
    */
   private def playingFrame(local: LocalPlayback, audioRef: Ref[F, Option[AudioReading]]): F[Frame] =
     for {
-      track <- showFor(local.state.trackId)
+      track <- showFor(local.state.trackId, local.state.albumCoverUrl)
       show = track.settings
       reading <- audioRef.get
       monotonic <- Clock[F].monotonic
@@ -178,9 +217,15 @@ object SyncEngine:
     zone: Zone,
     lights: Lights[F],
     random: Random = new Random(),
-    audio: Stream[F, AudioReading] = Stream.empty
+    audio: Stream[F, AudioReading] = Stream.empty,
+    covers: Option[AlbumCovers[F]] = None
   ): F[SyncEngine[F]] =
-    Ref.of[F, Option[(TrackId, TrackShow)]](None).map(new SyncEngine[F](config, live, zone, spotify, lights, _, random, audio))
+    Ref.of[F, Option[(TrackId, TrackShow)]](None).map(
+      new SyncEngine[F](config, live, zone, spotify, lights, _, random, audio, covers.getOrElse(AlbumCovers.none[F]))
+    )
+
+  /** The longest a song's first frame waits for its album cover. */
+  val CoverWait: FiniteDuration = 1.second
 
   /** How far the tempo has to move from the last one logged before it's logged again. */
   private val TempoChangeToLog: Double = 0.03
