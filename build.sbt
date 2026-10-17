@@ -100,6 +100,10 @@ lazy val root = project
       (target ** "*.js*").get
     }.taskValue,
 
+    // The whole suite runs with the cookie variable set, so tests can show it never leaves the app.
+    Test / fork := true,
+    Test / envVars += "SPOTIFY_SP_DC" -> "sp-dc-sentinel",
+
     scalacOptions ++= Seq(
       "-deprecation",
       "-feature",
