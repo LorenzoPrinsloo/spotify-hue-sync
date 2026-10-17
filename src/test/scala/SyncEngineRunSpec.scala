@@ -275,6 +275,16 @@ class SyncEngineRunSpec extends CatsEffectSuite {
         assertEquals(kept.settings, brighter)
         assertEquals(kept.palette, before.palette)
         assertEquals(changed.palette.colors.size, 4)
+        assertEquals(changed.base, before.base)
+        assertEquals(Some(changed.palette), Palette.from(before.base, PaletteType.Tetradic))
+      }
+    }
+  }
+
+  test("a fresh show's palette is built from its base colour") {
+    alongside(Setup(show = classic), 2.seconds) { (e, _) =>
+      IO.sleep(1500.millis) *> e.showFor(track).map { show =>
+        assertEquals(Some(show.palette), Palette.from(show.base, show.settings.palette))
       }
     }
   }

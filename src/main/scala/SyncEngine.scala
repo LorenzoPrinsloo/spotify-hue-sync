@@ -14,8 +14,11 @@ import scala.concurrent.duration.*
 import scala.util.Random
 import settings.LiveSettings
 
-/** The track's tempo from Spotify, if it gave one, and the palette, settings and lights the show plays it with. */
-case class TrackShow(tempo: Option[Double], palette: Palette, settings: LightShowConfig, zone: Zone) {
+/**
+ * The track's tempo from Spotify, if it gave one, and the palette, settings and lights the show plays it with. `base` is
+ * the colour the palette was built from, kept so a new palette type can be built from the same colour.
+ */
+case class TrackShow(tempo: Option[Double], palette: Palette, settings: LightShowConfig, zone: Zone, base: RGB) {
   def bpm: Double = tempo.getOrElse(settings.defaultBpm) / settings.beatsPerPulse
 }
 
@@ -32,9 +35,12 @@ class SyncEngine[F[_]: Async] private (
 
   private val logger: SelfAwareStructuredLogger[F] = Slf4jLogger.getLogger[F]
 
-  private def newPalette(paletteType: PaletteType): F[Palette] =
-    Async[F].delay(Palette.random(paletteType)(using random))
-      .flatMap(Async[F].fromOption(_, new IllegalStateException(s"Couldn't make a $paletteType palette")))
+  private def randomBase: F[RGB] =
+    Async[F].delay(RGB.random(using random))
+      .flatMap(Async[F].fromOption(_, new IllegalStateException("Couldn't pick a base colour")))
+
+  private def paletteFrom(base: RGB, paletteType: PaletteType): F[Palette] =
+    Async[F].fromOption(Palette.from(base, paletteType), new IllegalStateException(s"Couldn't make a $paletteType palette"))
 
   /** The lights to play `settings` on: the area they name, or else the ones `before` played on (or the first zone). */
   private def zoneFor(settings: LightShowConfig, before: Option[TrackShow]): F[Zone] = {
@@ -67,9 +73,10 @@ class SyncEngine[F[_]: Async] private (
               case _ => logger.warn(s"Couldn't fetch the tempo for $trackId: $err")
             }) *> Async[F].pure(None)
           }
-          palette <- newPalette(settings.palette)
+          base <- randomBase
+          palette <- paletteFrom(base, settings.palette)
           lit <- zoneFor(settings, before.map(_._2))
-          created = TrackShow(tempo, palette, settings, lit)
+          created = TrackShow(tempo, palette, settings, lit, base)
           _ <- current.set(Some(trackId -> created))
           source = tempo.fold(s"default ${settings.defaultBpm} BPM")(t => s"track tempo $t BPM")
           _ <- logger.info(s"New show for $trackId: pulsing at ${created.bpm} BPM ($source), palette ${settings.palette}:\n${palette.show}")
@@ -81,14 +88,14 @@ class SyncEngine[F[_]: Async] private (
 
   /**
    * Takes up the latest settings now rather than at the next song, moving to another area if they name one. The palette
-   * only changes if its type did.
+   * only changes if its type did, and then it's built from the colour the song started with.
    */
   def applyNow: F[Unit] =
     for {
       settings <- live.startSong
       playing <- current.get
       _ <- playing.traverse_ { (trackId, show) =>
-        val palette = if (show.settings.palette == settings.palette) Async[F].pure(show.palette) else newPalette(settings.palette)
+        val palette = if (show.settings.palette == settings.palette) Async[F].pure(show.palette) else paletteFrom(show.base, settings.palette)
         (palette, zoneFor(settings, Some(show))).flatMapN((p, lit) =>
           current.set(Some(trackId -> show.copy(palette = p, settings = settings, zone = lit)))
         )
