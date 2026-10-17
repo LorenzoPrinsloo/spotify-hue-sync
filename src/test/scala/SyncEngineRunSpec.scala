@@ -323,7 +323,14 @@ class SyncEngineRunSpec extends CatsEffectSuite {
     }
   }
 
-  private def signingIn(configured: Option[String], answer: IO[Response[IO]]): IO[List[Frame]] =
+  private val tokenGranted = """{ "access_token": "signed-in", "token_type": "Bearer", "expires_in": 3600, "scope": "s" }"""
+
+  private def signingIn(
+    clientId: String,
+    configured: Option[String],
+    answer: IO[Response[IO]],
+    handCodeAt: Option[FiniteDuration]
+  ): IO[List[(FiniteDuration, Frame)]] =
     TestControl.executeEmbed {
       for {
         codes <- SignInCodes.make[IO]
@@ -334,36 +341,46 @@ class SyncEngineRunSpec extends CatsEffectSuite {
               if (form.getFirstOrElse("grant_type", "") == "refresh_token") answer
               else Ok("""{ "access_token": "signed-in", "token_type": "Bearer", "expires_in": 3600, "scope": "s", "refresh_token": "refresh-9" }""")
             }
+          case GET -> Root / "authorize" => Ok("login")
           case req @ GET -> Root / "v1" / "me" / "player" =>
             if (req.headers.get[headers.Authorization].exists(_.credentials.renderString.endsWith("signed-in"))) Ok(playing("track-1"))
             else IO.pure(Response[IO](Status.Unauthorized))
           case GET -> Root / "v1" / "audio-features" / _ => Ok("""{ "tempo": 128.0 }""")
         }.orNotFound
-        spotify = new SpotifyClient[IO](Client.fromHttpApp(app), SpotifyCredentials("id", "secret", configured), session, codes)
+        spotify = new SpotifyClient[IO](Client.fromHttpApp(app), SpotifyCredentials(clientId, "secret", configured), session, codes)
         show = LightShowConfig(palette = PaletteType.Triadic, pulse = PulseSettings(restLevel = 1.0, peakBoost = 0.0))
         live <- LiveSettings.make[IO](show)
         e <- SyncEngine.make[IO](config(show), live, spotify, zone, lights, new Random(7L), Stream.empty)
         callback = SpotifyClient.callbackRoutes[IO](codes).orNotFound
-        handing = IO.sleep(1500.millis) *> callback.run(Request(Method.GET, uri"/callback?code=browser-code"))
+        handing = handCodeAt.fold(IO.unit)(at => IO.sleep(at) *> callback.run(Request(Method.GET, uri"/callback?code=code-1")).void)
         frames <- handing.background.use(_ => e.run.evalMap(f => IO.monotonic.map(_ -> f)).interruptAfter(5.seconds).compile.toList)
-      } yield frames.collect { case (t, f) if t > 2500.millis => f }
+      } yield frames
     }
+
+  private def between(frames: List[(FiniteDuration, Frame)], from: FiniteDuration, to: FiniteDuration): List[Frame] =
+    frames.collect { case (t, f) if t > from && t < to => f }
 
   private def followsPlayback(frames: List[Frame]): Unit = {
     assert(frames.nonEmpty)
-    assert(frames.exists(f => !isResting(f)))
-    assert(frames.forall(f => f.updates.map(_.id) == zone.channels))
+    assert(frames.forall(f => !isResting(f) && f.updates.map(_.id) == zone.channels))
   }
 
-  test("with a valid configured refresh token the lights follow playback without a browser") {
-    signingIn(Some("token"), Ok("""{ "access_token": "signed-in", "token_type": "Bearer", "expires_in": 3600, "scope": "s" }""")).map(followsPlayback)
+  private def afterBrowserSignIn(frames: List[(FiniteDuration, Frame)]): Unit = {
+    val waiting = between(frames, Duration.Zero, 1500.millis)
+    assert(waiting.nonEmpty)
+    assert(waiting.forall(isResting), "the lights should rest until a code is handed")
+    followsPlayback(between(frames, 1600.millis, 5.seconds))
   }
 
-  test("with a rejected configured refresh token the lights follow playback after the browser sign-in") {
-    signingIn(Some("token"), BadRequest("""{"error":"invalid_grant"}""")).map(followsPlayback)
+  test("with a valid configured refresh token the lights follow playback without a browser code") {
+    signingIn("client-valid", Some("token"), Ok(tokenGranted), None).map(frames => followsPlayback(between(frames, 1100.millis, 5.seconds)))
   }
 
-  test("with no configured refresh token the lights follow playback after the browser sign-in") {
-    signingIn(None, Ok("unused")).map(followsPlayback)
+  test("with a rejected configured refresh token the lights rest until the browser code arrives, then follow playback") {
+    signingIn("client-rejected", Some("token"), BadRequest("""{"error":"invalid_grant"}"""), Some(1500.millis)).map(afterBrowserSignIn)
+  }
+
+  test("with no configured refresh token the lights rest until the browser code arrives, then follow playback") {
+    signingIn("client-absent", None, Ok("unused"), Some(1500.millis)).map(afterBrowserSignIn)
   }
 }
