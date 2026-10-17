@@ -4,7 +4,7 @@ import cats.effect.{Deferred, IO, Ref}
 import cats.effect.unsafe.implicits.global
 import domain.spotify.{SpotifyCredentials, SpotifySession}
 import munit.ScalaCheckSuite
-import org.http4s.{HttpRoutes, Response, Status, UrlForm}
+import org.http4s.{HttpRoutes, Response, Status}
 import org.http4s.client.Client
 import org.http4s.dsl.io.*
 import org.scalacheck.Gen
@@ -36,19 +36,11 @@ class SpotifyRenewSpec extends ScalaCheckSuite {
     }
   }
 
-  property("renewal sends the session's refresh token, so the error never carries a different token") {
-    forAll(tokenGen) { token =>
-      val fake = HttpRoutes.of[IO] { case req @ POST -> Root / "api" / "token" =>
-        req.as[UrlForm].map { form =>
-          val sent = form.getFirstOrElse("refresh_token", "")
-          val body =
-            if (sent == token) """{"error":"invalid_grant"}"""
-            else s"""{"error":"invalid_grant","error_description":"unexpected token $sent"}"""
-          Response[IO](Status.BadRequest).withEntity(body)
-        }
-      }
+  property("a renewal failure message never contains the refresh token sent") {
+    forAll(tokenGen, statusGen, bodyGen) { (token, status, body) =>
+      val fake = HttpRoutes.of[IO] { case POST -> Root / "api" / "token" => IO.pure(Response[IO](status).withEntity(body)) }
       renewAgainst(token, fake) match {
-        case Left(e: SpotifyTokenError) => !e.getMessage.contains("unexpected token")
+        case Left(e: SpotifyTokenError) => !e.getMessage.contains(token)
         case _ => false
       }
     }
