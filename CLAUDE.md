@@ -16,6 +16,7 @@ How the app works is in `docs/how-it-works.md`, and how the code is laid out is 
 - munit with ScalaCheck properties, `CatsEffectSuite`, and `TestControl` for anything timed. Spotify and Hue are faked over HTTP.
 - No comments explaining a test. The test's name says what it checks.
 - The settings page (`ui/`, Scala.js and Laminar) is tested in Node.js.
+- No tests that read documentation files (README, docs/, .env.example). A documentation criterion is met by the docs themselves.
 
 ## Before a change is done
 
