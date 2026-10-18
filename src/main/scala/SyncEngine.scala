@@ -243,7 +243,7 @@ object SyncEngine:
       case TempoNews.KickMoved(from, to) =>
         f"The kick fits $to%.1f BPM better than $from%.1f BPM (ratio ${to / from}%.2f); using $to%.1f BPM"
       case TempoNews.FollowedRelated(from, to) =>
-        f"Followed a related tempo from $from%.1f to $to%.1f BPM (ratio ${to / from}%.2f) once it had held for 8 seconds"
+        f"Followed a related tempo from $from%.1f to $to%.1f BPM (ratio ${to / from}%.2f) once it had held"
     }
 
   /** Pulses elapsed at a playback position, pulsing at `bpm`. */

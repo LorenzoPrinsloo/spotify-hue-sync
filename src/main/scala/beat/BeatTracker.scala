@@ -54,22 +54,10 @@ case class BeatTracker(
       estimated.filter(e =>
         e.confidence >= s.minConfidence || steady || (e.confidence >= s.keepConfidence && beat.exists(BeatTracker.sameTempo(_, e)))
       )
-    val held = beat.filter(h => (now - h.updatedAt).toNanos / 1e9 <= s.holdSeconds)
-    val BeatTracker.Held(nextBeat, nextPending, followed) =
-      if (n % s.reestimateEvery != 0) BeatTracker.Held(beat, pending, None)
-      else if (nextEnvelope.size < s.minFrames) BeatTracker.Held(None, None, None)
-      else
-        accepted.zip(beat).headOption.fold(BeatTracker.Held(accepted.orElse(held), None, None)) { (e, locked) =>
-          BeatTracker.hold(locked, e, pending, now, s)
-        }
-
-    val news = followed.toVector.flatMap(from => nextBeat.map(b => TempoNews.FollowedRelated(from, b.bpm))) ++
-      (for {
-        e <- estimate.toVector if followed.isEmpty
-        winner <- e.movedFrom
-        kept <- nextBeat if kept eq e.state
-        if !beat.exists(BeatTracker.sameTempo(_, kept))
-      } yield TempoNews.KickMoved(winner, kept.bpm))
+    val (BeatTracker.Held(nextBeat, nextPending, _), news) =
+      if (n % s.reestimateEvery != 0) (BeatTracker.Held(beat, pending, None), Vector.empty)
+      else if (nextEnvelope.size < s.minFrames) (BeatTracker.Held(None, None, None), Vector.empty)
+      else BeatTracker.decide(s, beat, pending, estimate, accepted, now)
 
     // Treble-led onsets are hi-hats and cymbals rather than the click of a kick, whose bass outweighs its treble.
     val trebleLed = onset.trebleFlux > BeatTracker.TrebleLed * onset.flux
@@ -134,15 +122,41 @@ object BeatTracker {
   /** How close to a tempo ratio, relative to the ratio, a tempo must be to count as related. */
   val RelatedTolerance: Double = 0.02
 
-  private val HeldRatios: Vector[Double] = Vector(1.0 / 2, 2.0 / 3, 3.0 / 4, 4.0 / 3, 3.0 / 2, 2.0)
+  private val RelatedTempoRatios: Vector[Double] = Vector(1.0 / 2, 2.0 / 3, 3.0 / 4, 4.0 / 3, 3.0 / 2, 2.0)
 
   /** Whether `bpm` sits at one of the ratios 1:2, 2:3, 3:4, 4:3, 3:2 and 2:1 of the `locked` tempo. */
   def related(locked: Double, bpm: Double): Boolean =
-    HeldRatios.exists(r => math.abs(bpm / locked - r) / r < RelatedTolerance)
+    RelatedTempoRatios.exists(r => math.abs(bpm / locked - r) / r < RelatedTolerance)
 
   def sameTempo(a: BeatState, b: BeatState): Boolean = sameBpm(a.bpm, b.bpm)
 
   private def sameBpm(a: Double, b: Double): Boolean = math.abs(b - a) / a < TempoTolerance
+
+  /**
+   * The beat to report for an estimate: the accepted one, or the old beat while it is within `holdSeconds`. A tempo
+   * related to the locked one waits out its hold first. Also the news, if the kick moved the tempo or a hold ended.
+   */
+  def decide(
+    s: TrackerSettings,
+    beat: Option[BeatState],
+    pending: Option[Pending],
+    estimate: Option[Estimate],
+    accepted: Option[BeatState],
+    now: FiniteDuration
+  ): (Held, Vector[TempoNews]) = {
+    val held = beat.filter(h => (now - h.updatedAt).toNanos / 1e9 <= s.holdSeconds)
+    val result = accepted
+      .flatMap(e => beat.map(hold(_, e, pending, now, s)))
+      .getOrElse(Held(accepted.orElse(held), None, None))
+    val followed = result.followedFrom.toVector.flatMap(from => result.beat.map(b => TempoNews.FollowedRelated(from, b.bpm)))
+    val kickMoved = for {
+      e <- estimate.toVector if result.followedFrom.isEmpty
+      winner <- e.movedFrom
+      kept <- result.beat if accepted.contains(kept)
+      if !beat.exists(sameTempo(_, kept))
+    } yield TempoNews.KickMoved(winner, kept.bpm)
+    (result, followed ++ kickMoved)
+  }
 
   /** A related tempo waiting out its hold, and when the estimates first agreed on it. */
   case class Pending(bpm: Double, since: FiniteDuration)
@@ -165,7 +179,7 @@ object BeatTracker {
     if (sameTempo(locked, e) || !related(locked.bpm, e.bpm)) Held(Some(e), None, None)
     else {
       val since = pending.collect { case Pending(bpm, at) if sameBpm(bpm, e.bpm) => at }.getOrElse(now)
-      if ((now - since).toNanos / 1e9 < s.historySeconds) Held(Some(locked), Some(Pending(e.bpm, since)), None)
+      if ((now - since).toNanos / 1e9 < s.historySeconds) Held(Some(locked.copy(updatedAt = now)), Some(Pending(e.bpm, since)), None)
       else Held(Some(e), None, Some(locked.bpm))
     }
 

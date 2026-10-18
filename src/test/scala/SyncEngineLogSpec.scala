@@ -41,7 +41,7 @@ class SyncEngineLogSpec extends FunSuite {
   test("tempoNewsLine for a followed related tempo names both tempos and the ratio") {
     assertEquals(
       SyncEngine.tempoNewsLine(TempoNews.FollowedRelated(128.0, 96.0)),
-      "Followed a related tempo from 128.0 to 96.0 BPM (ratio 0.75) once it had held for 8 seconds"
+      "Followed a related tempo from 128.0 to 96.0 BPM (ratio 0.75) once it had held"
     )
   }
 }
