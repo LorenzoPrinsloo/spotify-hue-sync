@@ -68,4 +68,64 @@ class RelatedTempoSpec extends ScalaCheckSuite {
     val (audio, _) = Synth.drums(25, _ => 110, seed = 7L)
     assertEquals(kickMoves(audio), Vector.empty)
   }
+
+  private def within(b: Double, bpm: Double): Boolean = math.abs(b - bpm) / bpm < 0.04
+
+  private def switching(from: Double, to: Double, at: Double, seconds: Double, seed: Long): Array[Float] =
+    Synth.drums(seconds, t => if (t < at) from else to, seed = seed)._1
+
+  private def reported(audio: Array[Float], from: Double, to: Double): Vector[(Double, Double)] =
+    Synth.readings(audio).collect { case (t, r) if t >= from && t <= to && r.beat.isDefined => (t, r.beat.get.bpm) }
+
+  property("reports the real tempo from the first lock to the end of a steady clip") {
+    forAllNoShrink(Gen.choose(90.0, 150.0), Gen.choose(1L, 1000L), Gen.choose(25.0, 30.0)) { (bpm, seed, seconds) =>
+      holdsTempo(Synth.drums(seconds, _ => bpm, seed = seed)._1, bpm)
+    }
+  }
+
+  property("keeps the old tempo for four seconds after a switch to three quarters of it, then follows within twenty") {
+    forAllNoShrink(Gen.choose(1L, 1000L), Gen.choose(10.0, 14.0)) { (seed, at) =>
+      val audio = switching(128, 96, at, at + 28, seed)
+      reported(audio, at, at + 4).forall((_, b) => within(b, 128)) &&
+      reported(audio, at + 20, at + 28).forall((_, b) => within(b, 96))
+    }
+  }
+
+  property("follows a switch to three halves of the tempo within twenty seconds") {
+    forAllNoShrink(Gen.choose(1L, 1000L)) { seed =>
+      val audio = switching(96, 144, 10, 38, seed)
+      reported(audio, 10, 14).forall((_, b) => within(b, 96)) && reported(audio, 30, 38).forall((_, b) => within(b, 144))
+    }
+  }
+
+  property("keeps the tempo through a four second passage at three quarters of it") {
+    forAllNoShrink(Gen.choose(1L, 1000L), Gen.choose(10.0, 14.0)) { (seed, at) =>
+      val (audio, _) = Synth.drums(34, t => if (t >= at && t < at + 4) 96 else 128, seed = seed)
+      holdsTempo(audio, 128)
+    }
+  }
+
+  test("follows a change from 100 to 128 BPM, which isn't related") {
+    assert(!BeatTracker.related(100, 128))
+    val audio = switching(100, 128, 10, 40, 5L)
+    assert(within(Synth.track(audio).beat.get.bpm, 128))
+    assert(reported(audio, 28, 40).forall((_, b) => within(b, 128)))
+  }
+
+  test("follows an unrelated change from 100 to 140 BPM") {
+    assert(!BeatTracker.related(100, 140))
+    assert(within(Synth.track(switching(100, 140, 10, 40, 6L)).beat.get.bpm, 140))
+  }
+
+  test("relates the tempos at the ratios and no others") {
+    assert(Vector(50.0, 66.7, 75.0, 133.3, 150.0, 200.0).forall(BeatTracker.related(100, _)))
+    assert(Vector(100.0, 90.0, 110.0, 128.0, 160.0).forall(!BeatTracker.related(100, _)))
+  }
+
+  test("reports exactly one followed related tempo over a switch, from the old tempo to the new one") {
+    val news = Synth.readings(switching(128, 96, 10, 40, 1L)).flatMap(_._2.news).collect { case n: TempoNews.FollowedRelated => n }
+    assertEquals(news.size, 1)
+    assertEqualsDouble(news.head.from, 128.0, 3.0)
+    assertEqualsDouble(news.head.to, 96.0, 3.0)
+  }
 }

@@ -25,7 +25,8 @@ case class BeatTracker(
   sparkle: Option[Hit] = None,
   sparkles: Long = 0,
   groove: Option[Groove] = None,
-  news: Vector[TempoNews] = Vector.empty
+  news: Vector[TempoNews] = Vector.empty,
+  pending: Option[BeatTracker.Pending] = None
 ) {
 
   def reading: AudioReading =
@@ -49,20 +50,26 @@ case class BeatTracker(
     val estimated = estimate.map(_.state)
     val nextRecent = if (n % s.reestimateEvery != 0) recent else (recent ++ estimated).takeRight(s.steadyEstimates)
     val steady = BeatTracker.steady(nextRecent, s)
-    val nextBeat =
-      if (n % s.reestimateEvery != 0) beat
-      else if (nextEnvelope.size < s.minFrames) None
+    val accepted =
+      estimated.filter(e =>
+        e.confidence >= s.minConfidence || steady || (e.confidence >= s.keepConfidence && beat.exists(BeatTracker.sameTempo(_, e)))
+      )
+    val held = beat.filter(h => (now - h.updatedAt).toNanos / 1e9 <= s.holdSeconds)
+    val BeatTracker.Held(nextBeat, nextPending, followed) =
+      if (n % s.reestimateEvery != 0) BeatTracker.Held(beat, pending, None)
+      else if (nextEnvelope.size < s.minFrames) BeatTracker.Held(None, None, None)
       else
-        estimated
-          .filter(e => e.confidence >= s.minConfidence || steady || (e.confidence >= s.keepConfidence && beat.exists(BeatTracker.sameTempo(_, e))))
-          .orElse(beat.filter(held => (now - held.updatedAt).toNanos / 1e9 <= s.holdSeconds))
+        accepted.zip(beat).headOption.fold(BeatTracker.Held(accepted.orElse(held), None, None)) { (e, locked) =>
+          BeatTracker.hold(locked, e, pending, now, s)
+        }
 
-    val news = for {
-      e <- estimate.toVector
-      winner <- e.movedFrom
-      accepted <- nextBeat if accepted eq e.state
-      if !beat.exists(BeatTracker.sameTempo(_, accepted))
-    } yield TempoNews.KickMoved(winner, accepted.bpm)
+    val news = followed.toVector.flatMap(from => nextBeat.map(b => TempoNews.FollowedRelated(from, b.bpm))) ++
+      (for {
+        e <- estimate.toVector if followed.isEmpty
+        winner <- e.movedFrom
+        kept <- nextBeat if kept eq e.state
+        if !beat.exists(BeatTracker.sameTempo(_, kept))
+      } yield TempoNews.KickMoved(winner, kept.bpm))
 
     // Treble-led onsets are hi-hats and cymbals rather than the click of a kick, whose bass outweighs its treble.
     val trebleLed = onset.trebleFlux > BeatTracker.TrebleLed * onset.flux
@@ -101,7 +108,8 @@ case class BeatTracker(
       sparkle = newSparkle.orElse(sparkle),
       sparkles = if (newSparkle.isDefined) sparkles + 1 else sparkles,
       groove = nextGroove,
-      news = news
+      news = news,
+      pending = nextPending
     )
   }
 }
@@ -123,7 +131,43 @@ object BeatTracker {
   /** How many times better than the all-onset winner a related tempo must score on the kick to replace it. */
   private val KickMargin: Double = 1.1
 
-  def sameTempo(a: BeatState, b: BeatState): Boolean = math.abs(b.bpm - a.bpm) / a.bpm < TempoTolerance
+  /** How close to a tempo ratio, relative to the ratio, a tempo must be to count as related. */
+  val RelatedTolerance: Double = 0.02
+
+  private val HeldRatios: Vector[Double] = Vector(1.0 / 2, 2.0 / 3, 3.0 / 4, 4.0 / 3, 3.0 / 2, 2.0)
+
+  /** Whether `bpm` sits at one of the ratios 1:2, 2:3, 3:4, 4:3, 3:2 and 2:1 of the `locked` tempo. */
+  def related(locked: Double, bpm: Double): Boolean =
+    HeldRatios.exists(r => math.abs(bpm / locked - r) / r < RelatedTolerance)
+
+  def sameTempo(a: BeatState, b: BeatState): Boolean = sameBpm(a.bpm, b.bpm)
+
+  private def sameBpm(a: Double, b: Double): Boolean = math.abs(b - a) / a < TempoTolerance
+
+  /** A related tempo waiting out its hold, and when the estimates first agreed on it. */
+  case class Pending(bpm: Double, since: FiniteDuration)
+
+  /** The beat to report, the tempo still waiting, and the locked tempo that was left when the hold ended. */
+  case class Held(beat: Option[BeatState], pending: Option[Pending], followedFrom: Option[Double])
+
+  /**
+   * A tempo related to the `locked` one has to be estimated steadily for `historySeconds` before it replaces the
+   * lock, which stays as it was meanwhile. Returns the beat, the tempo waiting with the time it was first seen,
+   * and the tempo left when the hold ended.
+   */
+  def hold(
+    locked: BeatState,
+    e: BeatState,
+    pending: Option[Pending],
+    now: FiniteDuration,
+    s: TrackerSettings
+  ): Held =
+    if (sameTempo(locked, e) || !related(locked.bpm, e.bpm)) Held(Some(e), None, None)
+    else {
+      val since = pending.collect { case Pending(bpm, at) if sameBpm(bpm, e.bpm) => at }.getOrElse(now)
+      if ((now - since).toNanos / 1e9 < s.historySeconds) Held(Some(locked), Some(Pending(e.bpm, since)), None)
+      else Held(Some(e), None, Some(locked.bpm))
+    }
 
   /** Whether the last `steadySeconds` of estimates all agree on the tempo, and are typically at least `keepConfidence`. */
   def steady(recent: Vector[BeatState], s: TrackerSettings): Boolean =
