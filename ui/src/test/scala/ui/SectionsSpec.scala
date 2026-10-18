@@ -36,6 +36,11 @@ class SectionsSpec extends munit.FunSuite {
     assertEquals(shown.sorted, ConfigSnippet.paths(defaults).sorted)
   }
 
+  test("all lights lists album cover colours right after palette") {
+    val keys = Sections.allLights.controls.flatMap(_.keys)
+    assertEquals(keys.indexOf("album-cover-colours"), keys.indexOf("palette") + 1)
+  }
+
   test("a section is dimmed exactly when no light plays the roles it's for, or the show isn't reacting") {
     val listening = defaults.copy(beatSource = BeatSource.Audio)
     def withRoles(roles: LightRole*) = listening.copy(reactive = listening.reactive.copy(roles = roles.toList))

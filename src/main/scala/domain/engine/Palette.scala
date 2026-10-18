@@ -13,35 +13,30 @@ object Palette {
     p.colors.map(_.show).mkString("\n")
   }
 
-  def random(mode: PaletteType)(using rnd: Random = Random): Option[Palette] = mode match {
-    case Complementary => {
-      for {
-        base <- RGB.random
-        compliment <- base.compliment
-      } yield Palette(colors = Vector(base, compliment))
-    }
-    case Analogous => {
-      RGB.random.map { base =>
-        Palette(colors = base.analogous.toVector)
-      }
-    }
-    case Monochromatic =>
-      RGB.random.map(base => Palette(base.monochromatic.toVector))
-    case Triadic =>
-      RGB.random.map(base => Palette(base.triadic.toVector))
-    case Tetradic =>
-      RGB.random.map(base => Palette(base.tetradic.toVector))
+  /**
+   * The palette of type `mode` built around `base`. `None` when the base has no complement, which the complementary and
+   * analogous-complementary types need.
+   */
+  def from(base: RGB, mode: PaletteType): Option[Palette] = mode match {
+    case Complementary => base.compliment.map(compliment => Palette(colors = Vector(base, compliment)))
+    case Analogous => Some(Palette(colors = base.analogous.toVector))
+    case Monochromatic => Some(Palette(base.monochromatic.toVector))
+    case Triadic => Some(Palette(base.triadic.toVector))
+    case Tetradic => Some(Palette(base.tetradic.toVector))
     case AnalogousComplementary(order) => {
-      for {
-        base <- RGB.random
-        compliment <- base.compliment
-        orderedColors = order match {
+      base.compliment.map { compliment =>
+        val orderedColors = order match {
           case Flat => (base.analogous ++ compliment.analogous).toVector
           case Interspersed => Vector(base.analogous, compliment.analogous).transpose.flatten
         }
-      } yield Palette(colors = orderedColors)
+        Palette(colors = orderedColors)
+      }
     }
   }
+
+  /** A palette of type `mode` around a random base colour: one `RGB.random` draw, so a seed fixes the palette. */
+  def random(mode: PaletteType)(using rnd: Random = Random): Option[Palette] =
+    RGB.random.flatMap(from(_, mode))
 
   extension (pal: Palette) {
 

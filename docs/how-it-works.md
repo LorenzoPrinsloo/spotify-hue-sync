@@ -66,7 +66,7 @@ flowchart TB
   `position = progress_ms + (now - time the poll arrived) + sync-offset-ms`
 
   `sync-offset-ms` (−150 ms by default) nudges the lights to line up with the audio.
-- **The song's show.** When a new track starts, the renderer takes up the latest settings (see [The settings page](#8-the-settings-page)), the lights of the area they name, a new palette and the track's tempo, and keeps them until the track changes. Frames are drawn from that show, so nothing else is read while they're drawn.
+- **The song's show.** When a new track starts, the renderer takes up the latest settings (see [The settings page](#8-the-settings-page)), the lights of the area they name, a new palette (built from the [album cover's](#the-base-colour-from-the-album-cover) colour) and the track's tempo, and keeps them until the track changes. Frames are drawn from that show, so nothing else is read while they're drawn.
 - The renderer always sends a frame, playing or not, and numbers each one (see [Streaming to Hue](#6-streaming-to-hue)).
 
 ## 3. The colour engine
@@ -107,7 +107,7 @@ A **monochromatic** palette stays on one spoke of the wheel and varies only in b
 
 ### Palettes
 
-`Palette.random(mode)` picks a random base colour and builds a palette from it. Choose the type with `light-show.palette`:
+A palette is built from a base colour: the song's [album cover colour](#the-base-colour-from-the-album-cover), or a random one when there isn't one (`Palette.random(mode)`). Choose the type with `light-show.palette`:
 
 | `light-show.palette` | `PaletteType` | Colours |
 |---|---|---|
@@ -124,6 +124,16 @@ A **monochromatic** palette stays on one spoke of the wheel and varies only in b
 ![Analogous-complementary palette in flat and interspersed order](images/palette-analogous-complementary.svg)
 
 A palette is generated the first time a track is seen and cached in a `Ref` for the rest of that track, so the colours stay stable while a song plays.
+
+### The base colour from the album cover
+
+When a song starts, the app fetches its album cover and takes the most vivid colour that covers about 5% or more of it. Black, white, grey and muddy pixels are left out, and neighbouring hues are grouped so that a colour lying across a bin edge isn't split in two. The palette of the configured type is built from that colour.
+
+- **A time limit.** The app waits at most 1 second for the cover.
+- **A fallback.** A random palette is used for the whole song when the cover is missing, slow, can't be fetched or read, or has no vivid colour. A failed or slow cover logs one warning.
+- **Remembered by URL.** Each cover's colour is remembered until the app stops, so a song played again doesn't fetch its cover again. Failures aren't remembered.
+- **Off switch.** `light-show.album-cover-colours = false` turns this off, and every song gets a random base colour.
+- **Apply now** keeps the song's base colour when the palette type changes, so the new palette comes from the same cover colour.
 
 ### Assigning colours to lights
 
@@ -315,6 +325,7 @@ light-show {
 |---|---|---|
 | `area` | none | The entertainment area to play on, by name, such as `"Muziekruimte Boven"`. Without one, the app uses `hue.zone-id` (`HUE_ZONE_ID`), or the bridge's only music area. See [Choosing the area](#choosing-the-area) |
 | `palette` | `analogous` | Palette type (see [Palettes](#palettes)) |
+| `album-cover-colours` | `true` | Builds each song's palette from its album cover's colour instead of a random one (see [the base colour from the album cover](#the-base-colour-from-the-album-cover)) |
 | `beat-source` | `spotify` | `audio` to follow the live beat, `spotify` to follow playback position and tempo |
 | `audio.device` | `BlackHole` | Audio input to listen to, matched by name |
 | `audio.offset-ms` | `100` | Shifts the lights relative to the detected beat; positive is earlier |
@@ -353,6 +364,7 @@ While the app runs, `http://127.0.0.1:7071` shows every light-show setting as a 
 
 - **Grouped by the lights they change.** Settings for rhythm and pulse lights, pulse lights only, colour lights, sparkles (colour and pulse lights) and all lights each have their own section. A section whose lights aren't in the role pattern is dimmed, with a note saying its settings change nothing right now; with the default pattern of rhythm and colour, that's the pulse-light section.
 - **See the song's palette.** The palette section shows the colours the playing song got, in the order the lights take them.
+- **Album cover colours.** A checkbox chooses between a palette built from the song's album cover and a random one; like other changes, it applies from the next song.
 - **Choose the area.** A picker lists the bridge's entertainment areas with their rooms and number of lights; moving the show to another happens at the next song, like any other change.
 - **Changes wait for the next song.** Each change is saved a moment after you stop moving the control, as the settings for the next song. When a new track starts, the engine takes them up along with the track's palette, and keeps them until the track changes. Nothing is read from the page while frames are drawn, and a song never changes settings part way through. Settings still waiting are marked, and **Apply now** takes them up straight away, keeping the palette unless its type changed.
 - **Nothing is saved to disk.** Changes last until the app stops. **Reset to config file** goes back to what `application.conf` set, and **Copy as config** gives the lines to paste into `application.conf` to keep what you have: only the settings that differ from the defaults.

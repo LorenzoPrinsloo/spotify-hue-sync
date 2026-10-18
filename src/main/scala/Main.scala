@@ -2,7 +2,7 @@ import cats.effect.*
 import cats.effect.{ExitCode, IOApp}
 import cats.effect.kernel.Resource
 import cats.effect.std.Env
-import client.{DtlsEmitter, EntertainmentStream, HttpClients, HueClient, SpotifyClient, TokenFile, TokenStore}
+import client.{AlbumCovers, DtlsEmitter, EntertainmentStream, HttpClients, HueClient, SpotifyClient, TokenFile, TokenStore}
 import cats.syntax.all.*
 import beat.{BeatTracking, TrackerSettings}
 import domain.config.{AppConfig, BeatSource}
@@ -50,7 +50,10 @@ object Main extends IOApp {
       _ <- Resource.eval(logger.info(
           s"Listening for the beat on '${config.lightShow.audio.device}'. If it never locks on, check that music is playing through it and that your terminal has microphone access."
         ).whenA(config.lightShow.beatSource == BeatSource.Audio))
-      engine <- Resource.eval(SyncEngine.make[IO](config, live, spotify, Zone(area.id, channels), lights, audio = audio))
+      covers <- Resource.eval(AlbumCovers.fromHttp[IO](clients.spotify))
+      engine <- Resource.eval(
+        SyncEngine.make[IO](config, live, spotify, Zone(area.id, channels), lights, audio = audio, covers = Some(covers))
+      )
       _ <-
         if (!config.ui.enabled) Resource.unit[IO]
         else

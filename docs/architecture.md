@@ -23,6 +23,7 @@ flowchart LR
         CB[Callback server<br/>127.0.0.1:7070]
         SC[SpotifyClient]
         SE[SyncEngine]
+        AC[AlbumCovers]
         PAL[Palette / RGB / Pulse<br/>colour engine]
         REN[Renderer<br/>pause fade]
         BT[BeatTracker<br/>live beat]
@@ -30,6 +31,10 @@ flowchart LR
         DE[DtlsEmitter]
         LS[LiveSettings]
         UI[Settings page<br/>127.0.0.1:7071]
+    end
+
+    subgraph CDN[Image CDN]
+        IMG[i.scdn.co<br/>album covers]
     end
 
     subgraph Hue[Hue bridge]
@@ -43,6 +48,8 @@ flowchart LR
     SC -- poll playback state --> API
     SE -- getPlaybackState --> SC
     SE -- palette and pulse --> PAL
+    SE -- cover colour --> AC
+    AC -- fetch cover --> IMG
     SE -- when paused --> REN
     BH[BlackHole<br/>audio input] --> BT
     BT -- beat, energy, hits --> SE
@@ -61,13 +68,13 @@ flowchart LR
 |---|---|
 | (root) | `Main`, which wires everything together, and `SyncEngine`, which turns playback state into light frames |
 | (root) | Also `Lights`: the bridge's entertainment areas and the channels in each, as the engine sees them |
-| `client` | Everything that talks to the outside world: `SpotifyClient` (with `TokenStore`, which saves the refresh token to a file, `TokenFile`, the file's format and problems, and `FileModes`, its permission checks), `HueClient` (including the list of entertainment areas), `DtlsEmitter`, and `EntertainmentStream`, which streams each frame to its area and moves the stream when the area changes |
+| `client` | Everything that talks to the outside world: `SpotifyClient` (with `TokenStore`, which saves the refresh token to a file, `TokenFile`, the file's format and problems, and `FileModes`, its permission checks), `AlbumCovers` (fetches and reads album covers, with `CoverError` for its failures), `HueClient` (including the list of entertainment areas), `DtlsEmitter`, and `EntertainmentStream`, which streams each frame to its area and moves the stream when the area changes |
 | `audio` | `AudioCapture` captures audio from an input device such as BlackHole; `AudioInput` holds its format, chooses the device and mixes the audio to mono; `CaptureClock` times each block |
 | `beat` | Live beat detection: `Fft`, `OnsetDetector`, `BeatTracker`, `BeatState`, `Groove` (the bar's kick pattern), `AudioReading` and the `BeatTracking` stream |
 | `domain.config` | `AppConfig`, `HueConfig`, `UiConfig` and `LightShowConfig` (with `PulseSettings`, `PauseSettings`, `AudioSettings`, `ReactiveSettings` and `SwellSettings`, in `model`), loaded with pureconfig from `application.conf` on top of the defaults in `reference.conf` by `LightShowConfigReaders`; `SettingsView`, `SettingsProblems` and `ConfigSnippet` for the settings page |
 | `settings` | `LiveSettings` (the settings for this session, taken up as each song starts), `SettingsRoutes` (the page and its API), `ShowControls` (what the page asks of the running show: apply now, the areas, the song's palette) and `SettingsServer` |
 | `ui` | The settings page: `SettingsPage`, `Sections` (every setting on it), `Api` |
-| `domain.engine` | The colour engine and animation: `RGB`, `Palette`, `PaletteType`, `Order`, `Pulse` (the envelopes), `Effects` (the reactions to the music), `LightRole` (each light's job), `Renderer` (the pause fade) and `LocalPlayback` |
+| `domain.engine` | The colour engine and animation: `RGB`, `Palette`, `CoverColour` (picks a song's base colour from cover pixels), `PaletteType`, `Order`, `Pulse` (the envelopes), `Effects` (the reactions to the music), `LightRole` (each light's job), `Renderer` (the pause fade) and `LocalPlayback` |
 | `domain.hue` | The Hue streaming protocol: `Zone`, `Frame`, `LightUpdate` and their binary codecs; `MusicArea` (in `model`), an entertainment area and how the one to play on is chosen |
 | `domain.spotify` | Spotify API models: `PlaybackState`, `SpotifyToken`, `SpotifySession`, `SpotifyCredentials` |
 | `givens.circe` | Shared circe codecs |
@@ -92,6 +99,7 @@ classDiagram
     class LightShowConfig {
         area: Option~String~
         palette: PaletteType
+        albumCoverColours: Boolean
         beatSource: BeatSource
         audio: AudioSettings
         reactive: ReactiveSettings
@@ -118,15 +126,16 @@ classDiagram
     class SyncEngine~F~ {
         -current: Ref~Option~
         +run: Stream~Frame~
-        +showFor(trackId) F~TrackShow~
+        +showFor(trackId, cover) F~TrackShow~
         +applyNow: F~Unit~
         +palette: F~Option~
-        +make(config, live, spotify, zone, lights, random, audio)$ F~SyncEngine~
+        +make(config, live, spotify, covers, zone, lights, random, audio)$ F~SyncEngine~
         +pulseFrame(zone, palette, pulses, settings, effects)$ Frame
     }
     class TrackShow {
         tempo: Option~Double~
         palette: Palette
+        base: RGB
         settings: LightShowConfig
         zone: Zone
         +bpm: Double

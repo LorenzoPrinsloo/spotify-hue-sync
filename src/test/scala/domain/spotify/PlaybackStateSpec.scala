@@ -20,10 +20,25 @@ class PlaybackStateSpec extends munit.FunSuite {
     assertEquals(state.trackId.value, "4uLU6hMCjMI75M1A2tKUQC")
     assertEquals(state.progress, 61500.millis)
     assert(state.isPlaying)
-    assertEquals(state.albumCoverUrl, "https://i.scdn.co/image/large")
+    assertEquals(state.albumCoverUrl, Some("https://i.scdn.co/image/large"))
   }
 
   test("fails when nothing is playing and the response has no track") {
     assert(decode[PlaybackState]("""{ "progress_ms": 0, "is_playing": false, "item": null }""").isLeft)
+  }
+
+  private def withItem(fields: String): String =
+    s"""{ "progress_ms": 0, "is_playing": true, "item": { "id": "t"$fields } }"""
+
+  List(
+    "images present" -> (""", "album": { "images": [ { "url": "u" } ] }""" -> Some("u")),
+    "empty images" -> (""", "album": { "images": [] }""" -> None),
+    "images null" -> (""", "album": { "images": null }""" -> None),
+    "no album" -> ("" -> None),
+    "album null" -> (""", "album": null""" -> None)
+  ).foreach { case (name, (fields, expected)) =>
+    test(s"cover url with $name decodes to $expected") {
+      assertEquals(decode[PlaybackState](withItem(fields)).map(_.albumCoverUrl), Right(expected))
+    }
   }
 }
