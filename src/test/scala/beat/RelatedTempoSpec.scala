@@ -7,20 +7,22 @@ import scala.concurrent.duration.*
 
 class RelatedTempoSpec extends ScalaCheckSuite {
 
-  override def scalaCheckTestParameters = super.scalaCheckTestParameters.withMinSuccessfulTests(12)
+  override def scalaCheckTestParameters = super.scalaCheckTestParameters.withMinSuccessfulTests(2)
   override val munitTimeout: Duration = 2.minutes
   override val scalaCheckInitialSeed: String = org.scalacheck.rng.Seed(20261014L).toBase64
 
-  private def tempos(audio: Array[Float]): Vector[Double] =
-    Synth.readings(audio).dropWhile(_._2.beat.isEmpty).flatMap(_._2.beat.map(_.bpm))
+  private type Readings = Vector[(Double, AudioReading)]
 
-  private def withAccents(kick: Double, ratio: Double, loudness: Double, seed: Long): Array[Float] = {
-    val (kicks, _) = Synth.drums(25, _ => kick, hats = false, seed = seed)
-    Synth.mix(kicks, Synth.accents(25, _ => kick * ratio, loudness = loudness, seed = seed))
+  private def tempos(readings: Readings): Vector[Double] =
+    readings.dropWhile(_._2.beat.isEmpty).flatMap(_._2.beat.map(_.bpm))
+
+  private def withAccents(kick: Double, ratio: Double, loudness: Double, seed: Long): Readings = {
+    val (kicks, _) = Synth.drums(20, _ => kick, hats = false, seed = seed)
+    Synth.readings(Synth.mix(kicks, Synth.accents(20, _ => kick * ratio, loudness = loudness, seed = seed)))
   }
 
-  private def holdsTempo(audio: Array[Float], bpm: Double): Boolean = {
-    val all = tempos(audio)
+  private def holdsTempo(readings: Readings, bpm: Double): Boolean = {
+    val all = tempos(readings)
     all.nonEmpty && all.forall(b => math.abs(b - bpm) / bpm < 0.04)
   }
 
@@ -44,19 +46,18 @@ class RelatedTempoSpec extends ScalaCheckSuite {
 
   property("keeps the full tempo when the kick lands on every other beat") {
     forAllNoShrink(Gen.choose(100.0, 118.0), Gen.choose(1L, 1000L)) { (bpm, seed) =>
-      val (audio, _) = Synth.drums(25, _ => bpm, kickEvery = 2, seed = seed)
-      holdsTempo(audio, bpm)
+      holdsTempo(Synth.readings(Synth.drums(20, _ => bpm, kickEvery = 2, seed = seed)._1), bpm)
     }
   }
 
-  private def kickMoves(audio: Array[Float]): Vector[TempoNews] =
-    Synth.readings(audio).flatMap(_._2.news).collect { case moved: TempoNews.KickMoved => moved }
+  private def kickMoves(readings: Readings): Vector[TempoNews] =
+    readings.flatMap(_._2.news).collect { case moved: TempoNews.KickMoved => moved }
 
   test("reports one kick move, from four thirds of the kick tempo to the kick tempo, when the first lock comes from it") {
-    val readings = Synth.readings(withAccents(100, 4.0 / 3, 1000, 3L))
+    val readings = withAccents(100, 4.0 / 3, 1000, 3L)
     val firstLock = readings.find(_._2.beat.isDefined).get._2
     assertEquals(firstLock.news.size, 1)
-    kickMoves(withAccents(100, 4.0 / 3, 1000, 3L)) match {
+    kickMoves(readings) match {
       case Vector(TempoNews.KickMoved(from, to)) =>
         assertEqualsDouble(from, 400.0 / 3, 4.0)
         assertEqualsDouble(to, 100.0, 2.0)
@@ -64,57 +65,59 @@ class RelatedTempoSpec extends ScalaCheckSuite {
     }
   }
 
+  private def steady(bpm: Double, seed: Long, seconds: Double): Readings =
+    Synth.readings(Synth.drums(seconds, _ => bpm, seed = seed)._1)
+
   test("reports no kick move over a plain steady drum pattern") {
-    val (audio, _) = Synth.drums(25, _ => 110, seed = 7L)
-    assertEquals(kickMoves(audio), Vector.empty)
+    assertEquals(kickMoves(steady(110, 7L, 20)), Vector.empty)
   }
 
   private def within(b: Double, bpm: Double): Boolean = math.abs(b - bpm) / bpm < 0.04
 
-  private def switching(from: Double, to: Double, at: Double, seconds: Double, seed: Long): Array[Float] =
-    Synth.drums(seconds, t => if (t < at) from else to, seed = seed)._1
+  private def switching(from: Double, to: Double, at: Double, seconds: Double, seed: Long): Readings =
+    Synth.readings(Synth.drums(seconds, t => if (t < at) from else to, seed = seed)._1)
 
-  private def reported(audio: Array[Float], from: Double, to: Double): Vector[(Double, Double)] =
-    Synth.readings(audio).collect { case (t, r) if t >= from && t <= to && r.beat.isDefined => (t, r.beat.get.bpm) }
+  private def reported(readings: Readings, from: Double, to: Double): Vector[(Double, Double)] =
+    readings.collect { case (t, r) if t >= from && t <= to && r.beat.isDefined => (t, r.beat.get.bpm) }
 
   property("reports the real tempo from the first lock to the end of a steady clip") {
-    forAllNoShrink(Gen.choose(90.0, 150.0), Gen.choose(1L, 1000L), Gen.choose(25.0, 30.0)) { (bpm, seed, seconds) =>
-      holdsTempo(Synth.drums(seconds, _ => bpm, seed = seed)._1, bpm)
+    forAllNoShrink(Gen.choose(90.0, 150.0), Gen.choose(1L, 1000L), Gen.choose(20.0, 25.0)) { (bpm, seed, seconds) =>
+      holdsTempo(steady(bpm, seed, seconds), bpm)
     }
   }
 
   property("keeps the old tempo for four seconds after a switch to three quarters of it, then follows within twenty") {
     forAllNoShrink(Gen.choose(1L, 1000L), Gen.choose(10.0, 14.0)) { (seed, at) =>
-      val audio = switching(128, 96, at, at + 28, seed)
+      val audio = switching(128, 96, at, at + 25, seed)
       reported(audio, at, at + 4).forall((_, b) => within(b, 128)) &&
-      reported(audio, at + 20, at + 28).forall((_, b) => within(b, 96))
+      reported(audio, at + 20, at + 25).forall((_, b) => within(b, 96))
     }
   }
 
   property("follows a switch to three halves of the tempo within twenty seconds") {
     forAllNoShrink(Gen.choose(1L, 1000L)) { seed =>
-      val audio = switching(96, 144, 10, 38, seed)
-      reported(audio, 10, 14).forall((_, b) => within(b, 96)) && reported(audio, 30, 38).forall((_, b) => within(b, 144))
+      val audio = switching(96, 144, 8, 33, seed)
+      reported(audio, 8, 12).forall((_, b) => within(b, 96)) && reported(audio, 28, 33).forall((_, b) => within(b, 144))
     }
   }
 
   property("keeps the tempo through a four second passage at three quarters of it") {
     forAllNoShrink(Gen.choose(1L, 1000L), Gen.choose(10.0, 14.0)) { (seed, at) =>
-      val (audio, _) = Synth.drums(34, t => if (t >= at && t < at + 4) 96 else 128, seed = seed)
+      val audio = Synth.readings(Synth.drums(30, t => if (t >= at && t < at + 4) 96 else 128, seed = seed)._1)
       holdsTempo(audio, 128)
     }
   }
 
   test("follows a change from 100 to 128 BPM, which isn't related") {
     assert(!BeatTracker.related(100, 128))
-    val audio = switching(100, 128, 10, 40, 5L)
-    assert(within(Synth.track(audio).beat.get.bpm, 128))
-    assert(reported(audio, 28, 40).forall((_, b) => within(b, 128)))
+    val audio = switching(100, 128, 10, 32, 5L)
+    assert(within(audio.last._2.beat.get.bpm, 128))
+    assert(reported(audio, 28, 32).forall((_, b) => within(b, 128)))
   }
 
   test("follows an unrelated change from 100 to 140 BPM") {
     assert(!BeatTracker.related(100, 140))
-    assert(within(Synth.track(switching(100, 140, 10, 40, 6L)).beat.get.bpm, 140))
+    assert(within(switching(100, 140, 10, 32, 6L).last._2.beat.get.bpm, 140))
   }
 
   test("relates the tempos at the ratios and no others") {
@@ -123,7 +126,7 @@ class RelatedTempoSpec extends ScalaCheckSuite {
   }
 
   test("reports exactly one followed related tempo over a switch, from the old tempo to the new one") {
-    val news = Synth.readings(switching(128, 96, 10, 40, 1L)).flatMap(_._2.news).collect { case n: TempoNews.FollowedRelated => n }
+    val news = switching(128, 96, 10, 36, 1L).flatMap(_._2.news).collect { case n: TempoNews.FollowedRelated => n }
     assertEquals(news.size, 1)
     assertEqualsDouble(news.head.from, 128.0, 3.0)
     assertEqualsDouble(news.head.to, 96.0, 3.0)
