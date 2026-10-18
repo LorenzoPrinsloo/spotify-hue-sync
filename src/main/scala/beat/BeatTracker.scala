@@ -44,7 +44,7 @@ case class BeatTracker(
     // once locked, a weaker estimate that agrees on the tempo keeps the beat.
     val estimated =
       if (n % s.reestimateEvery != 0 || nextEnvelope.size < s.minFrames) None
-      else BeatTracker.estimate(s, nextEnvelope, nextBass, nextLoudness, now, beat)
+      else BeatTracker.estimate(s, nextEnvelope, nextBass, nextLoudness, now, beat).map(_.state)
     val nextRecent = if (n % s.reestimateEvery != 0) recent else (recent ++ estimated).takeRight(s.steadyEstimates)
     val steady = BeatTracker.steady(nextRecent, s)
     val nextBeat =
@@ -106,6 +106,12 @@ object BeatTracker {
 
   /** Tempos within this fraction of each other count as the same, measured slightly differently. */
   val TempoTolerance: Double = 0.04
+
+  /** Tempo ratios, such as 4:3 and 3:2, that a kick and other accents can sit at; half and double aren't among them. */
+  private val RelatedRatios: Vector[Double] = Vector(2.0 / 3, 3.0 / 4, 4.0 / 3, 3.0 / 2)
+
+  /** How many times better than the all-onset winner a related tempo must score on the kick to replace it. */
+  private val KickMargin: Double = 1.1
 
   def sameTempo(a: BeatState, b: BeatState): Boolean = math.abs(b.bpm - a.bpm) / a.bpm < TempoTolerance
 
@@ -172,6 +178,29 @@ object BeatTracker {
     }.maxBy(_._2)
   }
 
+  /** A tempo estimate, and the all-onset winner's bpm when the kick moved it to a related tempo. */
+  case class Estimate(state: BeatState, movedFrom: Option[Double])
+
+  /**
+   * Accents or a bass line can make a related tempo win on all the onsets while the kick keeps another: the period of
+   * the related tempo the kick clearly prefers to the `winner`, if there is one.
+   */
+  private def kickPreferred(low: Array[Double], lowMean: Double, winner: Double, minPeriod: Double, maxPeriod: Double): Option[Double] = {
+    val lowSpread = math.sqrt(low.map(v => (v - lowMean) * (v - lowMean)).sum / low.length)
+    def kickScore(p: Double): Double = {
+      val (_, m, k) = bestOffset(low, p)
+      (m - lowMean) / math.max(lowSpread, 1e-9) * math.sqrt(k.toDouble)
+    }
+    val winnerScore = kickScore(winner)
+    RelatedRatios
+      .map(winner / _)
+      .filter(p => p >= minPeriod && p <= maxPeriod)
+      .map(p => (p, kickScore(p)))
+      .maxByOption(_._2)
+      .filter((_, kick) => kick > 0 && kick > KickMargin * winnerScore)
+      .map(_._1)
+  }
+
   /**
    * The tempo and how confident it is come from all the onsets, `envelope`. Where the beats fall comes from the low
    * end alone, `bass`: the kick lands on the beat, while hi-hats usually land between beats and can outweigh it.
@@ -183,7 +212,7 @@ object BeatTracker {
     loudness: Vector[Double],
     now: FiniteDuration,
     previous: Option[BeatState]
-  ): Option[BeatState] = {
+  ): Option[Estimate] = {
     val recentLoudness = loudness.takeRight((2 * s.frameRate).toInt)
     val quiet = recentLoudness.isEmpty || recentLoudness.sum / recentLoudness.size < s.silenceRms
     val env = smoothed(envelope)
@@ -204,7 +233,14 @@ object BeatTracker {
       val minPeriod = 60 * s.frameRate / s.maxBpm
       val maxPeriod = math.min(env.length / 2.0, 60 * s.frameRate / s.minBpm)
       val candidates = Iterator.iterate(minPeriod)(_ + 0.1).takeWhile(_ <= maxPeriod).toVector
-      val period = candidates.maxBy(score)
+      val winner = candidates.maxBy(score)
+
+      val low = smoothed(bass)
+      val lowMean = low.sum / math.max(1, low.length)
+      val lowUsable = low.length == env.length && low.exists(_ > lowMean + 1e-9)
+
+      val kickMoved = if (lowUsable) kickPreferred(low, lowMean, winner, minPeriod, maxPeriod) else None
+      val period = kickMoved.getOrElse(winner)
       val measuredBpm = 60 * s.frameRate / period
       val bpm = previous match {
         case Some(p) if math.abs(measuredBpm - p.bpm) / p.bpm < TempoTolerance => 0.7 * p.bpm + 0.3 * measuredBpm
@@ -214,9 +250,7 @@ object BeatTracker {
       val (_, gridLevel, _) = bestOffset(env, beatFrames)
       val confidence = (gridLevel - mean) / spread
 
-      val low = smoothed(bass)
-      val lowMean = low.sum / math.max(1, low.length)
-      val phaseFrom = if (low.length == env.length && low.exists(_ > lowMean + 1e-9)) low else env
+      val phaseFrom = if (lowUsable) low else env
       val phaseMean = phaseFrom.sum / phaseFrom.length
       val (bestAt, bestLevel, _) = bestOffset(phaseFrom, beatFrames)
       // Once there's a beat, follow its grid (allowing for a little drift) and only move to another phase once that
@@ -237,7 +271,7 @@ object BeatTracker {
       }
       val beatAt = now - (offset * s.hopDuration.toNanos).toLong.nanos
       val number = previous.fold(0L)(p => p.number + math.round((beatAt - p.beatAt).toNanos.toDouble / p.period.toNanos))
-      Some(BeatState(bpm, beatAt, now, confidence, doubt, number))
+      Some(Estimate(BeatState(bpm, beatAt, now, confidence, doubt, number), kickMoved.map(_ => 60 * s.frameRate / winner)))
     }
   }
 }
