@@ -8,11 +8,11 @@ Running the app needs sbt and a JDK. Three more things stop it working in a cont
 
 ## Decision
 
-Add a new config key, `callback.host`, read into `CallbackConfig(host: Host)` and validated by its pureconfig reader. reference.conf sets its default to 127.0.0.1. The port stays 7070 and the redirect URI doesn't change. `SpotifyClient.resource` takes the config in a second parameter list and passes the host to `serverResource`. Right after loading the config, `Main` logs one line if the beat source is Spotify.
+Add a new config key, `callback.host`, read into `CallbackConfig(host: Host)` and validated by its pureconfig reader. reference.conf sets its default to 127.0.0.1. The port stays 7070 and the redirect URI doesn't change. `SpotifyClient.resource` takes the config in a second parameter list and passes the host to `serverResource`. A package-private `build` does the work with the port as a parameter and also returns the server, so a test can start the real wiring on an ephemeral port and find where it bound; `resource` is `build` on port 7070. Right after loading the config, `Main` logs one line if the beat source is Spotify.
 
 The `Dockerfile` has two stages, and nothing in it is specific to one architecture:
-- Build: `FROM --platform=$BUILDPLATFORM eclipse-temurin:21-jdk AS build` with the sbt launcher tarball. The class files, jars and main.js don't depend on the architecture, so buildx compiles once, natively, rather than under QEMU. The stage first runs `sbt update` on the build files alone, so that layer can be cached. Then `sbt -batch -error 'export root/Runtime/fullClasspath' | tail -n1` captures the classpath without sbt's banner, and it also links the Scala.js page through the existing resourceGenerator. Each entry, in order, is copied to `/app/lib/NNN-<basename>` (numbered, so equal base names can't collide). The stage then writes `/app/bin/run`, which runs `java -Dconfig.file=/app/docker.conf -cp <those paths, in order> Main`.
-- Runtime: `eclipse-temurin:21-jre`, one per target platform. It runs as a non-root user that owns `/data`, with `ENV SPOTIFY_TOKEN_FILE=/data/refresh-token` and `VOLUME /data`. No sbt plugins are added.
+- Build: `FROM eclipse-temurin:21-jdk AS build`, with no `--platform` flag and no `BUILDPLATFORM`/`TARGETARCH` arguments, because the legacy builder in distro Docker (20.10 on Raspberry Pi OS) doesn't fill those in. Each build therefore runs for the platform being built: natively for a plain `docker build`, and under QEMU for the foreign architecture in a buildx multi-platform build, which is slower but correct. The stage uses `SHELL ["/bin/bash", "-o", "pipefail", "-c"]` and the sbt launcher tarball. It first runs `sbt update` on the build files alone, so that layer can be cached. Then `sbt -batch -error 'export root/Runtime/fullClasspath' | tail -n1` captures the classpath without sbt's banner (pipefail makes a failed sbt fail the build), and it also links the Scala.js page through the existing resourceGenerator. Each entry, in order, is copied to `/app/lib/NNN-<basename>` (numbered, so equal base names can't collide). The stage then writes `/app/bin/run`, which runs `exec java -Dconfig.file=/app/docker.conf -cp <those paths, in order> Main`.
+- Runtime: `eclipse-temurin:21-jre`, a multi-arch image. It runs as a non-root user that owns `/data`, uses the exec-form `ENTRYPOINT ["/app/bin/run"]` so signals reach the JVM, and sets `ENV SPOTIFY_TOKEN_FILE=/data/refresh-token` and `VOLUME /data`. No sbt plugins are added.
 
 `docker/application.conf` loads in this order: `include classpath("application.conf")`, then the optional `include file("/config/application.conf")`, then `callback.host = "0.0.0.0"`, `ui.host = "0.0.0.0"` and `light-show.beat-source = "spotify"`. Because the three container keys come last, they win even when a user mounts a full copy of the bundled file.
 
@@ -20,13 +20,13 @@ The `Dockerfile` has two stages, and nothing in it is specific to one architectu
 
 - `domain.config.CallbackConfig` (new): the host, its `ConfigReader[Host]`, and the `Port` constant 7070.
 - `domain.config.AppConfig`: gains `callback: CallbackConfig = CallbackConfig()`.
-- `client.SpotifyClient` companion: `serverResource(codes, host, port = CallbackConfig.Port)` and `resource(client, creds, store)(callback)`.
+- `client.SpotifyClient` companion: `serverResource(codes, host, port = CallbackConfig.Port)`, `private[client] build(client, creds, store, callback, port)` returning the client and its server, and `resource(client, creds, store)(callback)`, which is `build` on `CallbackConfig.Port`.
 - `Main`: adds `spotifyTiming(config)` and passes `config.callback` on.
 - `reference.conf`: adds `callback { host = "127.0.0.1" }`, with a comment.
 - New files: `Dockerfile`, `docker/application.conf`, and `.dockerignore` (`**/target`, `.git`, `.bsp`, `.metals`, `.bloop`, `.idea`, `.vscode`, `**/node_modules`, `.env`, `.env.*`).
 - Docs: a Docker section in the README; `docs/how-it-works.md` and `docs/architecture.md` change where they describe the callback server.
 
-Calls go in one direction: Main → AppConfig.load → SpotifyClient.resource(…)(config.callback) → serverResource(codes, host) → EmberServerBuilder.
+Calls go in one direction: Main → AppConfig.load → SpotifyClient.resource(…)(config.callback) → build → serverResource(codes, host) → EmberServerBuilder.
 
 ## Contracts
 
@@ -41,6 +41,7 @@ Calls go in one direction: Main → AppConfig.load → SpotifyClient.resource(�
 
 - Config: an invalid `callback.host` is fatal at startup. pureconfig reports it as a `CannotConvert` inside the existing `ConfigReaderException`. `Main` already logs `prettyPrint()`, which names the key, and exits with `ExitCode.Error` before any network call. pureconfig's existing failure ADT carries this, so no new sealed type is needed.
 - Callback bind: a port that's taken or an address that isn't local raises a `BindException` from the resource. That's fatal, as it is today.
+- Host resolution: the reader accepts any name `Host.fromString` takes and can't know whether it resolves. An unresolvable name passes the startup check and fails when the callback server binds, still before any call to Spotify or the bridge.
 - Docker build: a failed sbt step or an empty classpath fails the build.
 - Container with no token and 7070 not published: sign-in waits on the logged URL, as it does today. The README covers this.
 
@@ -148,10 +149,19 @@ index 3108333..9ac3f91 100644
 -      codes <- Resource.eval(SignInCodes.make[F])
 -      _ <- serverResource(codes)
 -    yield new SpotifyClient[F](client, creds, session, codes, store)
++  private[client] def build[F[_]: Async: Network](
++    client: Client[F],
++    creds: SpotifyCredentials,
++    store: TokenStore[F],
++    callback: CallbackConfig,
++    port: Port
++  ): Resource[F, (SpotifyClient[F], org.http4s.server.Server)] =
++    ???
++
 +  def resource[F[_]: Async: Network](client: Client[F], creds: SpotifyCredentials, store: TokenStore[F])(
 +    callback: CallbackConfig
 +  ): Resource[F, SpotifyClient[F]] =
-+    ???
++    build(client, creds, store, callback, CallbackConfig.Port).map(_._1)
  
    object CodeMatcher extends QueryParamDecoderMatcher[String]("code")
 diff --git a/src/main/scala/domain/config/AppConfig.scala b/src/main/scala/domain/config/AppConfig.scala
@@ -174,12 +184,12 @@ index 0ceaf7c..4173945 100644
 
 1. **Configurable callback host, Spotify-timing startup line, and a multi-arch Docker image.** Delivers everything in one PR, because the image depends on the new config key: the `callback.host` key (default 127.0.0.1), the Spotify-timing startup line, the Dockerfile with `.dockerignore` and `docker/application.conf`, the README's Docker section, and the updated docs on the callback server.
    - `docker build .` produces an image that starts the app when given only the README's environment variables.
-   - From an amd64 machine with a `docker-container` builder, `docker buildx build --platform linux/amd64,linux/arm64 .` builds both images and compiles only once, in the build platform's stage. A plain `docker build` builds and runs both on amd64 and on an arm64 Raspberry Pi.
+   - From an amd64 machine with a `docker-container` builder, `docker buildx build --platform linux/amd64,linux/arm64 .` builds both images, compiling the foreign one under QEMU. A plain `docker build` builds and runs on amd64 and on an arm64 Raspberry Pi, including one with the distro's Docker 20.10 and its legacy builder (no BuildKit).
    - With `-p 127.0.0.1:7071:7071`, the settings page opens at http://127.0.0.1:7071 in a browser on the host.
    - With `-p 127.0.0.1:7070:7070` and no refresh token, the logged authorize URL completes sign-in through http://127.0.0.1:7070/callback, and the lights start syncing.
    - After a browser sign-in, recreating the container with the same named volume at /data starts the app without logging an authorize URL.
    - In the container, with no audio device, the app plays on Spotify timing and logs one startup line saying live beat detection is off because the beat source is Spotify. It does the same when the mounted /config/application.conf sets `beat-source = "audio"`.
-   - With the default config, the sign-in callback listens on 127.0.0.1:7070 and refuses connections on the machine's non-loopback addresses.
+   - With the default config, the sign-in callback listens on 127.0.0.1:7070 and refuses connections on the machine's non-loopback addresses (the failure message names the port tried).
    - With `callback.host = "0.0.0.0"`, the callback accepts GET /callback?code=… on a non-loopback address and hands the code to the waiting sign-in.
    - With beat-source spotify, the startup log has exactly one line saying live beat detection is off because the beat source is Spotify. With beat-source audio, it has none.
    - With `callback.host` set to something that isn't a host ("not a host!" or ""), the app exits with an error code before contacting the bridge, and the error log names `callback.host`.
@@ -191,7 +201,9 @@ index 0ceaf7c..4173945 100644
    - docs/how-it-works.md and docs/architecture.md say the callback server listens on port 7070 at `callback.host`, which defaults to 127.0.0.1, and that the image sets it to 0.0.0.0. reference.conf documents the key.
    - Tests: CallbackConfigSpec is a table over configs loaded with reference.conf. A missing key gives 127.0.0.1. "0.0.0.0" and "localhost" load. "not a host!", "" and "a b" give a Left whose prettyPrint names `callback.host`. A property checks that any generated IPv4 address reads back as the same Host.
 
-SpotifyCallbackServerSpec (CatsEffectSuite) finds an IPv4 address in `IO.blocking`. The interface must be up, not loopback, not virtual and not link-local, and the address site-local or routable. If there is none, the test fails when `CI` is set and calls `assume` otherwise, and the PR confirms it ran in CI. The test starts `serverResource(codes, host, port"0")`. With the default host, a connection on that address is refused. With 0.0.0.0, GET /callback?code=c returns 200 and `codes` yields "c". The test also asserts that the port is 7070 and the default host is 127.0.0.1.
+SpotifyCallbackServerSpec (CatsEffectSuite) finds an IPv4 address in `IO.blocking`. The interface must be up, not loopback, not virtual and not link-local, and the address site-local or routable. If there is none, the test fails when `CI` is set and calls `assume` otherwise, and the PR confirms it ran in CI. The test starts `serverResource(codes, host, port"0")`. With the default host, a connection on that address and the bound port is refused, and the failure message names that port. With 0.0.0.0, GET /callback?code=c returns 200 and `codes` yields "c".
+
+SpotifyCallbackWiringSpec joins the halves that the two specs above leave apart. It loads `callback.host = "0.0.0.0"` through `AppConfig.load` over reference.conf, builds the client with `SpotifyClient.build(..., config.callback, port"0")`, and sends GET /callback?code=c to the returned server's bound port on the non-loopback address, expecting 200. With the default config the same connection is refused. Dropping the host anywhere between config and server fails it. It has the same no-interface handling as above. `Main` is outside coverage, so its one `config.callback` argument is the only link this spec doesn't exercise, and review checks it. The test also asserts that the port is 7070 and the default host is 127.0.0.1.
 
 MainSpec uses the existing captured-log and fake-bridge harness. With spotify, exactly one Spotify-timing line is logged. With audio, none is. An invalid `callback.host` gives ExitCode.Error, no bridge connections, and an ERROR line naming the key. Nothing new is timed, so there's no TestControl.
 
@@ -200,5 +212,6 @@ The Docker criteria are checked by hand and recorded in the PR: the buildx build
 ## Alternatives
 
 - Put the host on `SpotifyCredentials`. Why not: it derives a circe Codec and holds only credentials, so validation would move out of the config reader.
+- Keep the build stage on the build platform with `FROM --platform=$BUILDPLATFORM`, so buildx compiles once without QEMU. Why not: the legacy builder in Raspberry Pi OS's Docker 20.10 leaves `BUILDPLATFORM` empty, so a plain `docker build` fails there.
 - Use sbt-native-packager or sbt-assembly. Why not: the issue rules out new sbt plugins, and `export` plus `java -cp` does the same job.
 - Include the user's config after the container keys. Why not: a mounted copy of the bundled file would bring back `beat-source = "audio"` and the 127.0.0.1 hosts.
