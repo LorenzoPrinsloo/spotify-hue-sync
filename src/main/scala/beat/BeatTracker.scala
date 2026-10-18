@@ -222,20 +222,18 @@ object BeatTracker {
       // Once there's a beat, follow its grid (allowing for a little drift) and only move to another phase once that
       // has been stronger for a while: the beat and the off-beat are often close for a few bars, and flipping between
       // them throws the lights half a beat out.
-      val (offset, doubt) = previous.filter(p => math.abs(bpm - p.bpm) / p.bpm < TempoTolerance) match {
-        case Some(p) =>
-          val sinceBeat = (now - p.beatAt).toNanos.toDouble / p.period.toNanos
-          val continued = (sinceBeat - math.floor(sinceBeat)) * p.period.toNanos / s.hopDuration.toNanos
-          val (followAt, followLevel) = (-4 to 4).map { step =>
-            val o = continued + step * 0.5
-            val wrapped = if (o < 0) o + beatFrames else if (o >= beatFrames) o - beatFrames else o
-            (wrapped, gridMean(phaseFrom, beatFrames, wrapped)._1)
-          }.maxBy(_._2)
-          val phaseSpread = math.sqrt(phaseFrom.map(v => (v - phaseMean) * (v - phaseMean)).sum / phaseFrom.length)
-          val memory = 1 - math.exp(-(now - p.updatedAt).toNanos / 1e9 / s.phaseMemorySeconds)
-          val nextDoubt = p.doubt + ((bestLevel - followLevel) / math.max(phaseSpread, 1e-9) - p.doubt) * memory
-          if (nextDoubt > s.phaseSwitch) (bestAt, 0.0) else (followAt, nextDoubt)
-        case None => (bestAt, 0.0)
+      val (offset, doubt) = previous.filter(p => math.abs(bpm - p.bpm) / p.bpm < TempoTolerance).fold((bestAt, 0.0)) { p =>
+        val sinceBeat = (now - p.beatAt).toNanos.toDouble / p.period.toNanos
+        val continued = (sinceBeat - math.floor(sinceBeat)) * p.period.toNanos / s.hopDuration.toNanos
+        val (followAt, followLevel) = (-4 to 4).map { step =>
+          val o = continued + step * 0.5
+          val wrapped = if (o < 0) o + beatFrames else if (o >= beatFrames) o - beatFrames else o
+          (wrapped, gridMean(phaseFrom, beatFrames, wrapped)._1)
+        }.maxBy(_._2)
+        val phaseSpread = math.sqrt(phaseFrom.map(v => (v - phaseMean) * (v - phaseMean)).sum / phaseFrom.length)
+        val memory = 1 - math.exp(-(now - p.updatedAt).toNanos / 1e9 / s.phaseMemorySeconds)
+        val nextDoubt = p.doubt + ((bestLevel - followLevel) / math.max(phaseSpread, 1e-9) - p.doubt) * memory
+        if (nextDoubt > s.phaseSwitch) (bestAt, 0.0) else (followAt, nextDoubt)
       }
       val beatAt = now - (offset * s.hopDuration.toNanos).toLong.nanos
       val number = previous.fold(0L)(p => p.number + math.round((beatAt - p.beatAt).toNanos.toDouble / p.period.toNanos))

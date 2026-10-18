@@ -40,13 +40,10 @@ object TokenStore {
 
   /** The file at `location`, or `none` with a WARN when there is no location. */
   def at[F[_]: Async: Files](location: Option[Path]): F[TokenStore[F]] =
-    location match {
-      case None =>
-        val problem = TokenFileProblem.NoLocation
-        logger[F].warn(problem.context)(problem.message).as(none[F])
-      case Some(path) =>
-        logger[F].info(Map("path" -> path.toString))("Spotify refresh token file") *> file(path, FileModes.posix[F])
-    }
+    location.fold {
+      val problem = TokenFileProblem.NoLocation
+      logger[F].warn(problem.context)(problem.message).as(none[F])
+    }(path => logger[F].info(Map("path" -> path.toString))("Spotify refresh token file") *> file(path, FileModes.posix[F]))
 
   /**
    * Reads the file at `path` once, tightening loose permissions through `modes`. Each kind of problem from saving or

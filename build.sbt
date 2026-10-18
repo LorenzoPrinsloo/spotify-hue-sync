@@ -36,10 +36,29 @@ lazy val lintSettings = Seq(
   Test / scalafixConfig := Some((ThisBuild / baseDirectory).value / ".scalafix.test.conf")
 )
 
+/**
+ * The repo's own Scalafix rules, which `sbt lint` runs on every project. scalafix-core is published for Scala 2.13 but
+ * not 3, so the rules build against the 2.13 one, as Scalafix's own Scala 3 build does.
+ */
+lazy val rules = project
+  .in(file("scalafix-rules"))
+  .settings(lintSettings)
+  .settings(
+    name := "spotify-hue-sync-scalafix-rules",
+    scalacOptions ++= Seq("-deprecation", "-feature"),
+    libraryDependencies ++= Seq(
+      ("ch.epfl.scala" %% "scalafix-core" % _root_.scalafix.sbt.BuildInfo.scalafixVersion).cross(CrossVersion.for3Use2_13),
+      "org.scalameta" %% "munit" % munitVersion % Test
+    ),
+    // The rules are linted with themselves: Scalafix loads them from this project's own classes.
+    ScalafixConfig / internalDependencyClasspath := (Compile / exportedProducts).value
+  )
+
 /** The settings and colours, shared by the app and the settings page in the browser. */
 lazy val model = crossProject(JVMPlatform, JSPlatform)
   .crossType(CrossType.Pure)
   .in(file("model"))
+  .configurePlatforms(JVMPlatform, JSPlatform)(_.dependsOn(rules % ScalafixConfig))
   .settings(lintSettings)
   .jsSettings(coverageEnabled := false)
   .settings(
@@ -58,7 +77,7 @@ lazy val model = crossProject(JVMPlatform, JSPlatform)
 lazy val ui = project
   .in(file("ui"))
   .enablePlugins(ScalaJSPlugin)
-  .dependsOn(model.js)
+  .dependsOn(model.js, rules % ScalafixConfig)
   .settings(lintSettings)
   // Scala 3 records coverage on the JVM only, so the page is covered by its own tests rather than measured.
   .settings(coverageEnabled := false)
@@ -75,8 +94,8 @@ lazy val ui = project
 
 lazy val root = project
   .in(file("."))
-  .dependsOn(model.jvm)
-  .aggregate(model.jvm, model.js, ui)
+  .dependsOn(model.jvm, rules % ScalafixConfig)
+  .aggregate(model.jvm, model.js, ui, rules)
   .settings(lintSettings)
   .settings(
     name := "spotify-hue-sync",

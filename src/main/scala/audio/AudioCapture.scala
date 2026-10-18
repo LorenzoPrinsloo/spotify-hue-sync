@@ -21,16 +21,16 @@ object AudioCapture {
       Async[F].blocking(choose(device, inputNames).map(name => (name, inputNames))).flatMap {
         case None => Async[F].blocking(inputNames).flatMap(names => Async[F].raiseError(AudioDeviceNotFound(device, names)))
         case Some((name, names)) =>
-          Async[F].blocking(AudioSystem.getMixerInfo.find(_.getName == name)).flatMap {
-            case None => Async[F].raiseError(AudioDeviceNotFound(device, names))
-            case Some(mixer) =>
+          Async[F].blocking(AudioSystem.getMixerInfo.find(_.getName == name)).flatMap(
+            _.fold(Async[F].raiseError(AudioDeviceNotFound(device, names))) { mixer =>
               Async[F].blocking {
                 val line = AudioSystem.getMixer(mixer).getLine(lineInfo).asInstanceOf[TargetDataLine]
                 line.open(format, hop * format.getFrameSize * 16)
                 line.start()
                 line
               }
-          }
+            }
+          )
       }
     )(line => Async[F].blocking { line.stop(); line.close() })
 

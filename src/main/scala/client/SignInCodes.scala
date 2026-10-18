@@ -29,18 +29,12 @@ object SignInCodes {
       new SignInCodes[F] {
         def attempt: F[F[String]] =
           Deferred[F, String].flatMap { fresh =>
-            pending.modify {
-              case Some(current) => (Some(current), current.get)
-              case None => (Some(fresh), fresh.get)
-            }
+            pending.modify(_.fold((Some(fresh), fresh.get))(current => (Some(current), current.get)))
           }
 
         def hand(code: String): F[Boolean] =
           Concurrent[F].uncancelable { _ =>
-            pending.modify {
-              case Some(current) => (None, current.complete(code))
-              case None => (None, false.pure[F])
-            }.flatten
+            pending.modify(_.fold((None, false.pure[F]))(current => (None, current.complete(code)))).flatten
           }
       }
     }
