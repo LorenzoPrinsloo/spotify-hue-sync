@@ -109,16 +109,15 @@ class SpotifyClient[F[_]: Async: Network](
    * there is none or Spotify answers that it's no good (invalid_grant).
    */
   def signIn: F[String] =
-    store.load.flatMap:
-      case Some(saved) =>
-        refreshWith("Refresh Token Exchange", saved)
-          .flatTap(_ => logger.info(Map("client_id" -> creds.clientId))("Signed in to Spotify with the saved refresh token"))
-          .recoverWith { case SpotifyTokenError.Rejected(_, status, _) =>
-            logger.warn(Map("client_id" -> creds.clientId))(
-              s"Spotify rejected the saved refresh token (status: $status); deleted it and falling back"
-            ) *> store.forget *> fromConfigured
-          }
-      case None => fromConfigured
+    store.load.flatMap(_.fold(fromConfigured) { saved =>
+      refreshWith("Refresh Token Exchange", saved)
+        .flatTap(_ => logger.info(Map("client_id" -> creds.clientId))("Signed in to Spotify with the saved refresh token"))
+        .recoverWith { case SpotifyTokenError.Rejected(_, status, _) =>
+          logger.warn(Map("client_id" -> creds.clientId))(
+            s"Spotify rejected the saved refresh token (status: $status); deleted it and falling back"
+          ) *> store.forget *> fromConfigured
+        }
+    })
 
   private def fromConfigured: F[String] =
     creds.configuredRefreshToken.fold(initialAuth) { token =>
@@ -135,9 +134,7 @@ class SpotifyClient[F[_]: Async: Network](
    * Helper to always get a valid token.
    */
   def getOrRefresh: F[String] =
-    session.get.flatMap:
-      case Some(s) => Async[F].pure(s.accessToken)
-      case None => signIn
+    session.get.flatMap(_.fold(signIn)(s => Async[F].pure(s.accessToken)))
 
   /**
    * Swaps the refresh token for a new access token, keeping the refresh token Spotify sends back, if any.
@@ -145,10 +142,7 @@ class SpotifyClient[F[_]: Async: Network](
    */
   def renew: F[String] =
     for
-      token <- session.get.flatMap {
-        case Some(s) => refreshWith("Renew", s.refreshToken)
-        case None => signIn
-      }
+      token <- session.get.flatMap(_.fold(signIn)(s => refreshWith("Renew", s.refreshToken)))
       _ <- logger.info("Renewed the Spotify access token")
     yield token
 
@@ -182,10 +176,7 @@ class SpotifyClient[F[_]: Async: Network](
       .flatMap(token =>
         naming(call)(send(token).use(resp => if resp.status == Status.Unauthorized then Async[F].pure(None) else read(resp).map(Some(_))))
       )
-      .flatMap {
-        case Some(result) => Async[F].pure(result)
-        case None => renew.flatMap(token => naming(call)(send(token).use(read)))
-      }
+      .flatMap(_.fold(renew.flatMap(token => naming(call)(send(token).use(read))))(result => Async[F].pure(result)))
 
   /**
    * Port of fetch-spotify-playback-state.ts

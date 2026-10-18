@@ -40,10 +40,7 @@ final class SettingsPage {
     div(
       cls := "page",
       Api.settings --> (answer => loaded(answer)),
-      Api.areas --> {
-        case Right(found) => areas.set(found)
-        case Left(failed) => serverProblems.set(failed)
-      },
+      Api.areas --> (answer => answer.fold(serverProblems.set, areas.set)),
       EventStream.periodic(2000).drop(1).flatMapSwitch(_ => Api.settings) --> (answer => received(answer)),
       EventStream.periodic(2000).flatMapSwitch(_ => Api.palette) --> (answer => answer.foreach(songPalette.set)),
       draft.signal.changes.debounce(300).collect { case Some(edited) if LightShowConfig.problems(edited).isEmpty => edited }

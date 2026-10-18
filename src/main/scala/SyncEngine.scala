@@ -168,13 +168,11 @@ class SyncEngine[F[_]: Async] private (
       val renderer = Stream.awakeEvery[F](config.lightShow.frameIntervalMs.millis)
         .evalMap(_ => stateRef.get)
         .evalMapAccumulate(Renderer.initial) { (rendered, playback) =>
-          playback.filter(_.state.isPlaying) match {
-            case Some(local) => playingFrame(local, audioRef).map(Renderer.playing)
-            case None =>
-              (Clock[F].monotonic, live.applied, current.get).mapN { (now, show, playing) =>
-                Renderer.paused(rendered, now, playing.fold(zone)(_._2.zone), show.pause)
-              }
-          }
+          playback.filter(_.state.isPlaying).fold(
+            (Clock[F].monotonic, live.applied, current.get).mapN { (now, show, playing) =>
+              Renderer.paused(rendered, now, playing.fold(zone)(_._2.zone), show.pause)
+            }
+          )(local => playingFrame(local, audioRef).map(Renderer.playing))
         }
         .map(_._2)
 
@@ -195,12 +193,10 @@ class SyncEngine[F[_]: Async] private (
       monotonic <- Clock[F].monotonic
       now <- Clock[F].realTimeInstant
       heardAt = monotonic + show.audio.offsetMs.millis
-      pulses = reading.flatMap(_.beat) match {
-        case Some(b) => b.beatsAt(heardAt) / show.beatsPerPulse
-        case None =>
-          val latencyMs = java.time.Duration.between(local.receivedAt, now).toMillis
-          SyncEngine.pulsesAt(local.state.progress.toMillis + latencyMs + show.syncOffsetMs, track.bpm)
-      }
+      pulses = reading.flatMap(_.beat).fold {
+        val latencyMs = java.time.Duration.between(local.receivedAt, now).toMillis
+        SyncEngine.pulsesAt(local.state.progress.toMillis + latencyMs + show.syncOffsetMs, track.bpm)
+      }(b => b.beatsAt(heardAt) / show.beatsPerPulse)
       effects = reading
         .filter(_ => show.reactive.enabled)
         .fold(Effects.neutral)(r => Effects.at(heardAt, r, track.zone.channels.size, show.reactive))

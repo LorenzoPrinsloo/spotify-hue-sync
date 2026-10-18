@@ -57,15 +57,9 @@ class SignInCodesMakeSpec extends ScalaCheckSuite {
   private def modelled(ops: List[Op]): Outcome = {
     val (model, hands, ids) = ops.foldLeft((Model(None, 0, Map.empty), List.empty[Boolean], List.empty[Int])) {
       case ((m, hs, is), Op.Attempt) =>
-        m.pending match {
-          case Some(id) => (m, hs, id :: is)
-          case None => (m.copy(pending = Some(m.next), next = m.next + 1), hs, m.next :: is)
-        }
+        m.pending.fold((m.copy(pending = Some(m.next), next = m.next + 1), hs, m.next :: is))(id => (m, hs, id :: is))
       case ((m, hs, is), Op.Hand(code)) =>
-        m.pending match {
-          case Some(id) => (m.copy(pending = None, handed = m.handed + (id -> code)), true :: hs, is)
-          case None => (m, false :: hs, is)
-        }
+        m.pending.fold((m, false :: hs, is))(id => (m.copy(pending = None, handed = m.handed + (id -> code)), true :: hs, is))
     }
     Outcome(hands.reverse, ids.reverse.map(model.handed.get))
   }

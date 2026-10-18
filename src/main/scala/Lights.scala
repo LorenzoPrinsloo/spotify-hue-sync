@@ -22,13 +22,13 @@ object Lights {
         def areas: F[List[MusicArea]] = hue.areas
 
         def zone(area: String): F[Option[Zone]] =
-          known.get.map(_.get(area.toLowerCase)).flatMap {
-            case Some(zone) => Concurrent[F].pure(Some(zone))
-            case None =>
+          known.get.map(_.get(area.toLowerCase)).flatMap(
+            _.fold(
               hue.areas.map(_.find(_.name.equalsIgnoreCase(area))).flatMap(_.traverse { found =>
                 hue.getChannels(found.id).map(Zone(found.id, _)).flatTap(zone => known.update(_.updated(area.toLowerCase, zone)))
               })
-          }
+            )(zone => Concurrent[F].pure(Some(zone)))
+          )
       }
     }
 }

@@ -2,13 +2,14 @@
 
 spotify-hue-sync is a single Cats Effect application. It polls Spotify for what is playing, turns the current track into a tempo and a colour palette, and streams a light frame to a Philips Hue entertainment zone about 60 times a second. A settings page, served by the app, changes the light show's settings for the next song.
 
-The build has three modules:
+The build has four modules:
 
 | Module | Directory | What it is |
 |---|---|---|
 | `root` | `.` | The app |
 | `model` | `model/` | The settings, their rules and JSON codecs, the colours (`RGB`, with plain-Scala HSB conversion) and the palette and light-role names; built for the JVM and for Scala.js |
 | `ui` | `ui/` | The settings page, in Laminar, compiled to JavaScript and served by the app from `ui/main.js` beside `src/main/resources/ui/index.html` |
+| `rules` | `scalafix-rules/` | The repo's own Scalafix rules, which `sbt lint` runs on every module, itself included |
 
 ## Components
 
