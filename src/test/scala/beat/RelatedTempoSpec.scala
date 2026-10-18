@@ -48,4 +48,24 @@ class RelatedTempoSpec extends ScalaCheckSuite {
       holdsTempo(audio, bpm)
     }
   }
+
+  private def kickMoves(audio: Array[Float]): Vector[TempoNews] =
+    Synth.readings(audio).flatMap(_._2.news).collect { case moved: TempoNews.KickMoved => moved }
+
+  test("reports one kick move, from four thirds of the kick tempo to the kick tempo, when the first lock comes from it") {
+    val readings = Synth.readings(withAccents(100, 4.0 / 3, 1000, 3L))
+    val firstLock = readings.find(_._2.beat.isDefined).get._2
+    assertEquals(firstLock.news.size, 1)
+    kickMoves(withAccents(100, 4.0 / 3, 1000, 3L)) match {
+      case Vector(TempoNews.KickMoved(from, to)) =>
+        assertEqualsDouble(from, 400.0 / 3, 4.0)
+        assertEqualsDouble(to, 100.0, 2.0)
+      case other => fail(s"expected exactly one kick move, got $other")
+    }
+  }
+
+  test("reports no kick move over a plain steady drum pattern") {
+    val (audio, _) = Synth.drums(25, _ => 110, seed = 7L)
+    assertEquals(kickMoves(audio), Vector.empty)
+  }
 }

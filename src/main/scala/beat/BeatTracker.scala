@@ -24,11 +24,12 @@ case class BeatTracker(
   hit: Option[Hit] = None,
   sparkle: Option[Hit] = None,
   sparkles: Long = 0,
-  groove: Option[Groove] = None
+  groove: Option[Groove] = None,
+  news: Vector[TempoNews] = Vector.empty
 ) {
 
   def reading: AudioReading =
-    AudioReading(beat, levels.energy, levels.treble, hit, sparkle, sparkles, levels.pitch, groove.fold(Vector.empty)(_.pattern))
+    AudioReading(beat, levels.energy, levels.treble, hit, sparkle, sparkles, levels.pitch, groove.fold(Vector.empty)(_.pattern), news)
 
   def step(frame: AudioFrame): BeatTracker = {
     val s = settings
@@ -42,9 +43,10 @@ case class BeatTracker(
     // A tempo that stays put is evidence in itself: real songs often score well under `minConfidence` while the tempo
     // doesn't budge. So the tracker locks on to a confident estimate, or to a few seconds of estimates that agree;
     // once locked, a weaker estimate that agrees on the tempo keeps the beat.
-    val estimated =
+    val estimate =
       if (n % s.reestimateEvery != 0 || nextEnvelope.size < s.minFrames) None
-      else BeatTracker.estimate(s, nextEnvelope, nextBass, nextLoudness, now, beat).map(_.state)
+      else BeatTracker.estimate(s, nextEnvelope, nextBass, nextLoudness, now, beat)
+    val estimated = estimate.map(_.state)
     val nextRecent = if (n % s.reestimateEvery != 0) recent else (recent ++ estimated).takeRight(s.steadyEstimates)
     val steady = BeatTracker.steady(nextRecent, s)
     val nextBeat =
@@ -54,6 +56,13 @@ case class BeatTracker(
         estimated
           .filter(e => e.confidence >= s.minConfidence || steady || (e.confidence >= s.keepConfidence && beat.exists(BeatTracker.sameTempo(_, e))))
           .orElse(beat.filter(held => (now - held.updatedAt).toNanos / 1e9 <= s.holdSeconds))
+
+    val news = for {
+      e <- estimate.toVector
+      winner <- e.movedFrom
+      accepted <- nextBeat if accepted eq e.state
+      if !beat.exists(BeatTracker.sameTempo(_, accepted))
+    } yield TempoNews.KickMoved(winner, accepted.bpm)
 
     // Treble-led onsets are hi-hats and cymbals rather than the click of a kick, whose bass outweighs its treble.
     val trebleLed = onset.trebleFlux > BeatTracker.TrebleLed * onset.flux
@@ -91,7 +100,8 @@ case class BeatTracker(
       hit = nextHit,
       sparkle = newSparkle.orElse(sparkle),
       sparkles = if (newSparkle.isDefined) sparkles + 1 else sparkles,
-      groove = nextGroove
+      groove = nextGroove,
+      news = news
     )
   }
 }

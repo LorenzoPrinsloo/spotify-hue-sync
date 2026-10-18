@@ -1,4 +1,4 @@
-import beat.BeatState
+import beat.{BeatState, TempoNews}
 import munit.FunSuite
 import scala.concurrent.duration.*
 
@@ -29,5 +29,19 @@ class SyncEngineLogSpec extends FunSuite {
     val logged =
       tempos.scanLeft((Option.empty[Double], Option.empty[String])) { case ((last, _), bpm) => SyncEngine.beatNews(last, beat(bpm)) }.drop(1)
     assertEquals(logged.map(_._2.isDefined), List(true, false, false, false, true, false))
+  }
+
+  test("tempoNewsLine for a kick move names both tempos and the ratio") {
+    assertEquals(
+      SyncEngine.tempoNewsLine(TempoNews.KickMoved(120.0, 90.0)),
+      "The kick fits 90.0 BPM better than 120.0 BPM (ratio 0.75); using 90.0 BPM"
+    )
+  }
+
+  test("tempoNewsLine for a followed related tempo names both tempos and the ratio") {
+    assertEquals(
+      SyncEngine.tempoNewsLine(TempoNews.FollowedRelated(128.0, 96.0)),
+      "Followed a related tempo from 128.0 to 96.0 BPM (ratio 0.75) once it had held for 8 seconds"
+    )
   }
 }

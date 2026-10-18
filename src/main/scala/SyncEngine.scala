@@ -1,7 +1,7 @@
 import cats.effect.*
 import cats.effect.syntax.all.*
 import cats.syntax.all.*
-import beat.{AudioReading, BeatState}
+import beat.{AudioReading, BeatState, TempoNews}
 import client.{AlbumCovers, CoverError, SpotifyClient, SpotifyTlsFailure}
 import fs2.Stream
 import domain.config.{AppConfig, LightShowConfig, PulseSettings}
@@ -147,7 +147,7 @@ class SyncEngine[F[_]: Async] private (
     audio
       .evalMapAccumulate(Option.empty[Double]) { (logged, reading) =>
         val (remembered, news) = SyncEngine.beatNews(logged, reading.beat)
-        (news.traverse_(logger.info(_)) *> audioRef.set(Some(reading))).as((remembered, ()))
+        ((news.toList ++ reading.news.map(SyncEngine.tempoNewsLine)).traverse_(logger.info(_)) *> audioRef.set(Some(reading))).as((remembered, ()))
       }
       .drain
       .handleErrorWith { err =>
@@ -235,6 +235,15 @@ object SyncEngine:
       case (Some(was), Some(b)) if math.abs(b.bpm - was) / was > TempoChangeToLog =>
         (Some(b.bpm), Some(f"Tempo changed from $was%.1f to ${b.bpm}%.1f BPM (confidence ${b.confidence}%.1f)"))
       case _ => (logged, None)
+    }
+
+  /** The log line for a tempo decision: both tempos and the ratio of the new one to the old. */
+  def tempoNewsLine(news: TempoNews): String =
+    news match {
+      case TempoNews.KickMoved(from, to) =>
+        f"The kick fits $to%.1f BPM better than $from%.1f BPM (ratio ${to / from}%.2f); using $to%.1f BPM"
+      case TempoNews.FollowedRelated(from, to) =>
+        f"Followed a related tempo from $from%.1f to $to%.1f BPM (ratio ${to / from}%.2f) once it had held for 8 seconds"
     }
 
   /** Pulses elapsed at a playback position, pulsing at `bpm`. */
