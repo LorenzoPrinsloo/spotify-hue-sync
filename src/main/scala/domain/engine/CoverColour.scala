@@ -61,7 +61,8 @@ object CoverColour {
 
   /**
    * The mean colour of the most vivid window of bins covering at least `MinShare` of the pixels, or None when there's
-   * no such window.
+   * no such window. The colour is raised to the base minimums (`RGB.BaseSaturation`, `RGB.BaseBrightness`), keeping its
+   * hue.
    */
   def base(pixels: Seq[RGB]): Option[RGB] = {
     val total = pixels.size

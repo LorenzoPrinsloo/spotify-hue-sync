@@ -6,7 +6,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
 import client.{AlbumCovers, SpotifyClient}
 import domain.config.*
-import domain.engine.{Palette, PaletteType, RGB}
+import domain.engine.{Hsb, Palette, PaletteType, RGB}
 import domain.hue.{Frame, HueCredentials, MusicArea, Psk, Zone}
 import domain.spotify.{SpotifyCredentials, SpotifySession}
 import domain.spotify.types.TrackId
@@ -70,9 +70,16 @@ class SyncEngineCoverSpec extends CatsEffectSuite {
       }
   }
 
+  private def coverColour(hueDegrees: Double, saturation: Double, brightness: Double): RGB = {
+    val (r, g, b) = Hsb.toRgb((hueDegrees / 360.0).toFloat, saturation.toFloat, brightness.toFloat)
+    RGB.safe(r, g, b).get
+  }
+
   private def png(name: String): IO[Response[IO]] = name match {
     case "red" => Ok(Covers.png(red -> 1.0))
     case "blue" => Ok(Covers.png(blue -> 1.0))
+    case "pastel" => Ok(Covers.png(coverColour(200.0, 0.45, 0.95) -> 1.0))
+    case "dull" => Ok(Covers.png(coverColour(30.0, 0.8, 0.35) -> 1.0))
     case "grey" => Ok(Covers.png(grey -> 97.0, red -> 3.0))
     case "error" => InternalServerError("no")
     case "garbage" => Ok("not an image")
@@ -155,6 +162,26 @@ class SyncEngineCoverSpec extends CatsEffectSuite {
   test("a blue cover gives a blue base") {
     world(Setup(coverOf = _ => cover("blue"))) { env =>
       settle *> env.engine.showFor(track1).map(show => assert(hueDistance(hue(show.base), 240.0 / 360) < 0.03, show.base.hex))
+    }
+  }
+
+  List("pastel" -> 200.0, "dull" -> 30.0).foreach { (name, hueDegrees) =>
+    test(s"a $name cover gives a base of its hue lifted to the base minimums and logged as from the cover") {
+      world(Setup(coverOf = _ => cover(name), seed = 4L)) { env =>
+        for {
+          _ <- settle
+          show <- env.engine.showFor(track1)
+        } yield {
+          assert(hueDistance(hue(show.base), hueDegrees / 360.0) < 0.01, show.base.hex)
+          assert(saturation(show.base) >= 0.6, show.base.hex)
+          assert(brightness(show.base) >= 0.5, show.base.hex)
+          val logged = Tls.logged(env.logs).exists { e =>
+            e.getLevel == Level.INFO && e.getLoggerName.endsWith("SyncEngine") &&
+            e.getFormattedMessage.contains(s"base ${show.base.hex} from the album cover")
+          }
+          assert(logged, show.base.hex)
+        }
+      }
     }
   }
 

@@ -37,6 +37,44 @@ class CoverColourSpec extends ScalaCheckSuite {
     assert(isNear(pale, 200.0, 5.0))
   }
 
+  private def cover(colour: RGB): Vector[RGB] = Vector.fill(80)(colour) ++ neutral(20)
+
+  private def assertHue(base: RGB, degreesTarget: Double): Unit =
+    assert(degreesApart(degrees(hue(base)), degreesTarget) <= 2.0, base.hex)
+
+  test("a pastel cover colour gives its hue and brightness with saturation raised to the minimum") {
+    val base = CoverColour.base(cover(pixel(200.0, 0.45, 0.95))).get
+    assertHue(base, 200.0)
+    assert(saturation(base) >= 0.6, base.hex)
+    assert(saturation(base) <= 0.61, base.hex)
+    assert(math.abs(brightness(base) - 0.95) <= 0.01, base.hex)
+  }
+
+  test("a dull cover colour gives its hue and saturation with brightness raised to the minimum") {
+    val base = CoverColour.base(cover(pixel(30.0, 0.8, 0.35))).get
+    assertHue(base, 30.0)
+    assert(brightness(base) >= 0.5, base.hex)
+    assert(brightness(base) <= 0.5 + 1.0 / 255, base.hex)
+    assert(math.abs(saturation(base) - 0.8) <= 0.01, base.hex)
+  }
+
+  test("a cover colour low in both saturation and brightness is raised to both minimums and no further") {
+    val base = CoverColour.base(cover(pixel(120.0, 0.4, 0.3))).get
+    assertHue(base, 120.0)
+    assert(saturation(base) >= 0.6 && saturation(base) <= 0.61, base.hex)
+    assert(brightness(base) >= 0.5 && brightness(base) <= 0.5 + 1.0 / 255, base.hex)
+  }
+
+  test("a uniform red cover gives exactly that red") {
+    val red = RGB.safe(220, 20, 20).get
+    assertEquals(CoverColour.base(cover(red)), Some(red))
+  }
+
+  test("a uniform blue cover gives exactly that blue") {
+    val blue = RGB.safe(20, 20, 220).get
+    assertEquals(CoverColour.base(cover(blue)), Some(blue))
+  }
+
   test("a mostly vivid red cover gives red") {
     assert(isNear(patch(80, 0.0) ++ neutral(20), 0.0, 10.0))
   }
@@ -95,6 +133,12 @@ class CoverColourSpec extends ScalaCheckSuite {
   property("all-neutral input gives no base") {
     forAll(Gen.listOf(Gen.oneOf(black, white, grey))) { pixels =>
       CoverColour.base(pixels).isEmpty
+    }
+  }
+
+  property("any base measures at least the base minimums") {
+    forAll(Gen.choose(1, 60).flatMap(Gen.listOfN(_, rgb))) { pixels =>
+      CoverColour.base(pixels).forall(base => saturation(base) >= 0.6 && brightness(base) >= 0.5)
     }
   }
 
