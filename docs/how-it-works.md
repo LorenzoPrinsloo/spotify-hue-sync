@@ -107,7 +107,7 @@ A **monochromatic** palette stays on one spoke of the wheel and varies only in b
 
 ### Palettes
 
-A palette is built from a base colour: the song's [album cover colour](#the-base-colour-from-the-album-cover), or a random one when there isn't one (`Palette.random(mode)`). Choose the type with `light-show.palette`:
+A palette is built from a base colour: the song's [album cover colour](#the-base-colour-from-the-album-cover), or a random one when there isn't one (`Palette.random(mode)`). Every base colour, random or from the cover, is at least 60% saturated and 50% bright. A random base takes any hue on the wheel, at 60–100% saturation and 50–100% brightness. Choose the type with `light-show.palette`:
 
 | `light-show.palette` | `PaletteType` | Colours |
 |---|---|---|
@@ -127,10 +127,10 @@ A palette is generated the first time a track is seen and cached in a `Ref` for 
 
 ### The base colour from the album cover
 
-When a song starts, the app fetches its album cover and takes the most vivid colour that covers about 5% or more of it. Black, white, grey and muddy pixels are left out, and neighbouring hues are grouped so that a colour lying across a bin edge isn't split in two. The palette of the configured type is built from that colour.
+When a song starts, the app fetches its album cover and takes the most vivid colour that covers about 5% or more of it. Black, white, grey and muddy pixels are left out, and neighbouring hues are grouped so that a colour lying across a bin edge isn't split in two. If that colour is paler or darker than 60% saturation and 50% brightness, it keeps its hue and its saturation and/or brightness is raised to those minimums, not past them. A colour already above both is used as it is. The palette of the configured type is built from the result.
 
 - **A time limit.** The app waits at most 1 second for the cover.
-- **A fallback.** A random palette is used for the whole song when the cover is missing, slow, can't be fetched or read, or has no vivid colour. A failed or slow cover logs one warning.
+- **A fallback.** A random palette is used for the whole song when the cover is missing, slow, can't be fetched or read, or has no vivid colour, or when the setting is off. A failed or slow cover logs one warning.
 - **Remembered by URL.** Each cover's colour is remembered until the app stops, so a song played again doesn't fetch its cover again. Failures aren't remembered.
 - **Off switch.** `light-show.album-cover-colours = false` turns this off, and every song gets a random base colour.
 - **Apply now** keeps the song's base colour when the palette type changes, so the new palette comes from the same cover colour.
@@ -394,7 +394,7 @@ The [roadmap](roadmap.md) tracks fixes for these.
 
 ## Regenerating the images
 
-The images on this page are drawn from the app's own code (`Palette.random`, `RGB`, `Pulse`, `Renderer` and `SyncEngine.pulseFrame`), so they stay accurate when the engine changes. The comparison in [Keeping the colour at the peak](#keeping-the-colour-at-the-peak) also redraws the old RGB multiplication, for reference. To redraw them:
+The images on this page are drawn from the app's own code (`Palette.from` with a fixed base colour, `RGB`, `Pulse`, `Renderer` and `SyncEngine.pulseFrame`), so they stay accurate when the engine changes. The comparison in [Keeping the colour at the peak](#keeping-the-colour-at-the-peak) also redraws the old RGB multiplication, for reference. To redraw them:
 
 ```sh
 sbt "Test/runMain DocImages"

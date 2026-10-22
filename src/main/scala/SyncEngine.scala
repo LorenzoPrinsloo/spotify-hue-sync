@@ -40,7 +40,6 @@ class SyncEngine[F[_]: Async] private (
 
   private def randomBase: F[RGB] =
     Async[F].delay(RGB.random(using random))
-      .flatMap(Async[F].fromOption(_, new IllegalStateException("Couldn't pick a base colour")))
 
   private def paletteFrom(base: RGB, paletteType: PaletteType): F[Palette] =
     Async[F].fromOption(Palette.from(base, paletteType), new IllegalStateException(s"Couldn't make a $paletteType palette"))

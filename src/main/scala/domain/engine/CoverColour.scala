@@ -61,7 +61,8 @@ object CoverColour {
 
   /**
    * The mean colour of the most vivid window of bins covering at least `MinShare` of the pixels, or None when there's
-   * no such window.
+   * no such window. The colour is raised to the base minimums (`RGB.BaseSaturation`, `RGB.BaseBrightness`), keeping its
+   * hue.
    */
   def base(pixels: Seq[RGB]): Option[RGB] = {
     val total = pixels.size
@@ -76,7 +77,7 @@ object CoverColour {
         val turns = math.atan2(w.sin, w.cos) / (2 * math.Pi)
         val hue = turns - math.floor(turns)
         val (r, g, b) = Hsb.toRgb(hue.toFloat, (w.saturation / w.count).toFloat, (w.brightness / w.count).toFloat)
-        RGB.safe(r, g, b)
+        RGB.safe(r, g, b).map(_.withMinimums)
       }
   }
 }

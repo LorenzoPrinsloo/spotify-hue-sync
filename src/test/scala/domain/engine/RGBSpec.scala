@@ -3,10 +3,62 @@ package domain.engine
 import munit.ScalaCheckSuite
 import org.scalacheck.Gen
 import org.scalacheck.Prop.{forAll, propBoolean}
+import scala.util.Random
 import scodec.Codec
 import testkit.Colours.{*, given}
 
 class RGBSpec extends ScalaCheckSuite {
+
+  private def random(seed: Long): RGB = RGB.random(using new Random(seed))
+
+  private val coverColour: Gen[RGB] = for {
+    h <- Gen.choose(0f, 0.999f)
+    s <- Gen.choose(0.35f, 1f)
+    b <- Gen.choose(0.25f, 1f)
+  } yield {
+    val (r, g, bl) = Hsb.toRgb(h, s, b)
+    RGB.safe(r, g, bl).get
+  }
+
+  private def meetsMinimums(c: RGB): Boolean =
+    c.hsb(1) >= RGB.BaseSaturation && c.hsb(2) >= RGB.BaseBrightness
+
+  property("a random colour is at least 60% saturated and 50% bright") {
+    forAll { (seed: Long) => meetsMinimums(random(seed)) }
+  }
+
+  test("random colours reach every 10 degree band of the colour wheel") {
+    val bins = (0L until 5000L).map(s => (hue(random(s * 0x9e3779b97f4a7c15L)) * 36).toInt % 36).toSet
+    assertEquals(bins.size, 36)
+  }
+
+  property("the same seed always gives the same random colour") {
+    forAll { (seed: Long) => RGB.random(using new Random(seed)) == RGB.random(using new Random(seed)) }
+  }
+
+  property("a colour that already meets the minimums is left unchanged") {
+    forAll(rgb.suchThat(meetsMinimums)) { c => c.withMinimums == c }
+  }
+
+  property("a lifted cover colour meets the minimums, keeps its hue and is raised no further than needed") {
+    forAll(coverColour) { c =>
+      val l = c.withMinimums
+      val lowS = saturation(c) < RGB.BaseSaturation
+      val lowB = brightness(c) < RGB.BaseBrightness
+      val tolB = 1.0 / 255 + 1e-6
+      meetsMinimums(l) &&
+      (spread(c) < 20 || hueDistance(hue(l), hue(c)) < 0.02) &&
+      (if (lowS) saturation(l) - RGB.BaseSaturation < 0.01 else math.abs(saturation(l) - saturation(c)) < 0.02) &&
+      (if (lowB) brightness(l) - RGB.BaseBrightness <= tolB else math.abs(brightness(l) - brightness(c)) <= tolB)
+    }
+  }
+
+  test("lifting a colour whose plain conversion rounds just under the minimum nudges the saturation up") {
+    val c = RGB.safe(52, 129, 55).get
+    val (r, g, b) = Hsb.toRgb(c.hsb(0), RGB.BaseSaturation, c.hsb(2))
+    assert(Hsb.fromRgb(r, g, b)(1) < RGB.BaseSaturation)
+    assert(meetsMinimums(c.withMinimums))
+  }
 
   property("safe accepts a colour only when every channel is within 0-255") {
     forAll { (r: Int, g: Int, b: Int) =>
