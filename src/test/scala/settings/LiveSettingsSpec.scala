@@ -1,7 +1,8 @@
 package settings
 
 import cats.effect.IO
-import domain.config.{AudioSettings, BeatSource, LightShowConfig, PulseSettings, SettingsProblems}
+import beat.TrackerSettings
+import domain.config.{AudioSettings, BeatSource, LightShowConfig, PulseSettings, ReactiveSettings, RhythmSettings, SettingsProblems}
 import cats.syntax.all.*
 import munit.CatsEffectSuite
 
@@ -34,6 +35,22 @@ class LiveSettingsSpec extends CatsEffectSuite {
       assertEquals(answer, Left(SettingsProblems(List("pulse.attack + pulse.sustain must be less than 1"))))
       assertEquals(view.pending, fromFile)
     }
+  }
+
+  test("rhythm settings reach the tracker from the next song") {
+    val calmer = fromFile.copy(reactive = ReactiveSettings(rhythm = RhythmSettings(300, 0.7, 0.2)))
+    for {
+      live <- LiveSettings.make[IO](fromFile)
+      _ <- live.update(calmer)
+      started <- live.startSong
+    } yield assertEquals(TrackerSettings.from(started).rhythm, RhythmSettings(300, 0.7, 0.2))
+  }
+
+  test("an out-of-range rhythm setting is turned down with its message") {
+    val broken = fromFile.copy(reactive = ReactiveSettings(rhythm = RhythmSettings(minGapMs = 500)))
+    LiveSettings.make[IO](fromFile).flatMap(
+      _.update(broken).assertEquals(Left(SettingsProblems(List("reactive.rhythm.min-gap-ms must be between 0 and 400"))))
+    )
   }
 
   test("what only changes on a restart can't be changed") {

@@ -24,6 +24,12 @@ class SettingsJsonSpec extends ScalaCheckSuite {
     assertEquals(json.hcursor.downField("pause").downField("restingColour").as[String], Right("#1e1408"))
   }
 
+  test("the rhythm settings are written as an object with minGapMs, threshold and smoothing") {
+    val rhythm = LightShowConfig().asJson.hcursor.downField("reactive").downField("rhythm")
+    assertEquals(rhythm.keys.map(_.toList), Some(List("minGapMs", "threshold", "smoothing")))
+    assertEquals(rhythm.as[RhythmSettings], Right(RhythmSettings()))
+  }
+
   private val required =
     """spotify { client-id = "id", client-secret = "secret", refresh-token = "refresh" }
       |hue { zone-id = "zone", creds { address = "10.0.0.2", username = "user", psk = "00112233445566778899aabbccddeeff" } }

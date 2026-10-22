@@ -1,7 +1,7 @@
 package domain.engine
 
 import beat.{AudioReading, BeatState, Groove, Hit}
-import domain.config.ReactiveSettings
+import domain.config.{PulseSettings, ReactiveSettings}
 import munit.ScalaCheckSuite
 import org.scalacheck.Gen
 import org.scalacheck.Prop.forAll
@@ -20,6 +20,32 @@ class EffectsSpec extends ScalaCheckSuite {
     assertEquals(typical.copy(roles = Vector.empty), Effects.neutral)
     assertEquals(typical.roles, Vector.fill(3)(Vector(LightRole.Rhythm, LightRole.Colour)).flatten)
     assertEquals(typical.swell, settings.colourSwell)
+  }
+
+  private val pulse = PulseSettings()
+
+  test("the rhythm intensity is the smoothed energy kept between quietest and loudest, and None without it") {
+    val bounded = settings.copy(quietest = 0.3, loudest = 0.8)
+    assertEquals(effects(AudioReading(None, rhythmEnergy = Some(0.05)), settings = bounded).rhythmIntensity, Some(0.3))
+    assertEquals(effects(AudioReading(None, rhythmEnergy = Some(5.0)), settings = bounded).rhythmIntensity, Some(0.8))
+    assertEquals(effects(AudioReading(None, rhythmEnergy = Some(0.5)), settings = bounded).rhythmIntensity, Some(0.5))
+    assertEquals(effects(AudioReading(None)).rhythmIntensity, None)
+  }
+
+  property("a rhythm light is the kick pattern's brightness at the intensity, or at the rhythm intensity when there is one") {
+    forAll(Gen.choose(0.0, 100.0), Gen.choose(0.1, 1.0), Gen.choose(0.1, 1.0)) { (pulses, intensity, rhythmIntensity) =>
+      val rhythm = Rhythm(Groove.Prior, pulses)
+      val base = Effects(intensity = intensity, rhythm = Some(rhythm))
+      val level = Pulse.rhythm(rhythm.groove, rhythm.beats, pulse)
+      base.rhythmLight(pulses, pulse) == Pulse.brightness(level, pulse, intensity) &&
+      base.copy(rhythmIntensity = Some(rhythmIntensity)).rhythmLight(pulses, pulse) == Pulse.brightness(level, pulse, rhythmIntensity)
+    }
+  }
+
+  property("without a rhythm a rhythm light pulses on every pulse") {
+    forAll(Gen.choose(0.0, 100.0), Gen.choose(0.1, 1.0)) { (pulses, intensity) =>
+      Effects(intensity = intensity).rhythmLight(pulses, pulse) == Pulse.brightness(Pulse.onBeat(pulses, pulse), pulse, intensity)
+    }
   }
 
   private val rolePatterns: Gen[List[LightRole]] =

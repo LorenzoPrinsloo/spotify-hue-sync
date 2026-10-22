@@ -71,7 +71,7 @@ flowchart LR
 | (root) | Also `Lights`: the bridge's entertainment areas and the channels in each, as the engine sees them |
 | `client` | Everything that talks to the outside world: `SpotifyClient` (with `TokenStore`, which saves the refresh token to a file, `TokenFile`, the file's format and problems, and `FileModes`, its permission checks), `AlbumCovers` (fetches and reads album covers, with `CoverError` for its failures), `HueClient` (including the list of entertainment areas), `DtlsEmitter`, and `EntertainmentStream`, which streams each frame to its area and moves the stream when the area changes |
 | `audio` | `AudioCapture` captures audio from an input device such as BlackHole; `AudioInput` holds its format, chooses the device and mixes the audio to mono; `CaptureClock` times each block |
-| `beat` | Live beat detection: `Fft`, `OnsetDetector`, `BeatTracker`, `BeatState`, `Groove` (the bar's kick pattern), `AudioReading` and the `BeatTracking` stream |
+| `beat` | Live beat detection: `Fft`, `OnsetDetector`, `BeatTracker`, `BeatState`, `Groove` (the bar's kick pattern), `Calm` (calms the kick pattern for the rhythm lights), `AudioReading` and the `BeatTracking` stream |
 | `domain.config` | `AppConfig`, `HueConfig`, `UiConfig` and `LightShowConfig` (with `PulseSettings`, `PauseSettings`, `AudioSettings`, `ReactiveSettings` and `SwellSettings`, in `model`), loaded with pureconfig from `application.conf` on top of the defaults in `reference.conf` by `LightShowConfigReaders`; `SettingsView`, `SettingsProblems` and `ConfigSnippet` for the settings page |
 | `settings` | `LiveSettings` (the settings for this session, taken up as each song starts), `SettingsRoutes` (the page and its API), `ShowControls` (what the page asks of the running show: apply now, the areas, the song's palette) and `SettingsServer` |
 | `ui` | The settings page: `SettingsPage`, `Sections` (every setting on it), `Api` |
@@ -184,9 +184,11 @@ classDiagram
         sparkle: Option~Sparkle~
         roles: Vector~LightRole~
         rhythm: Option~Rhythm~
+        rhythmIntensity: Option~Double~
         paletteShift: Double
         swell: SwellSettings
         +at(now, reading, lights, settings)$ Effects
+        +rhythmLight(pulses, settings) Double
     }
     class Renderer {
         +playing(frame)$ RenderState and Frame

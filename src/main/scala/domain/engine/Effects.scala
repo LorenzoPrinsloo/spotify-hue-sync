@@ -1,14 +1,15 @@
 package domain.engine
 
 import beat.AudioReading
-import domain.config.{ReactiveSettings, SwellSettings}
+import domain.config.{PulseSettings, ReactiveSettings, SwellSettings}
 import scala.concurrent.duration.FiniteDuration
 
 /**
  * How the music shapes the show at one moment: an overall brightness, a turn of the palette's hue, a white flash
  * across every light after a big hit, and a twinkle on one light after a treble onset. With live audio, each light
  * also has a role: `rhythm` is where the show is in the bar's kick pattern, `paletteShift` how many palette colours
- * the colour lights have moved along the palette, and `swell` how they swell.
+ * the colour lights have moved along the palette, and `swell` how they swell. `rhythmIntensity`, when there is one,
+ * is the rhythm lights' brightness in place of `intensity`.
  */
 case class Effects(
   intensity: Double = 1.0,
@@ -18,7 +19,8 @@ case class Effects(
   roles: Vector[LightRole] = Vector.empty,
   rhythm: Option[Rhythm] = None,
   paletteShift: Double = 0.0,
-  swell: SwellSettings = SwellSettings()
+  swell: SwellSettings = SwellSettings(),
+  rhythmIntensity: Option[Double] = None
 ) {
 
   /** The given light's role; without live audio every light pulses. */
@@ -27,6 +29,14 @@ case class Effects(
   /** How far the given light is pushed towards white. */
   def whiteFor(light: Int): Double =
     math.min(1.0, flash + sparkle.filter(_.light == light).fold(0.0)(_.amount))
+
+  /** A rhythm light's brightness multiplier `pulses` pulses in: the kick pattern, or every pulse until there's a live beat. */
+  def rhythmLight(pulses: Double, settings: PulseSettings): Double =
+    Pulse.brightness(
+      rhythm.fold(Pulse.onBeat(pulses, settings))(r => Pulse.rhythm(r.groove, r.beats, settings)),
+      settings,
+      rhythmIntensity.getOrElse(intensity)
+    )
 }
 
 object Effects {
@@ -55,7 +65,8 @@ object Effects {
       )
       .filter(_.amount > 0.005)
     val rhythm = reading.beat.filter(_ => reading.groove.nonEmpty).map(b => Rhythm(reading.groove, b.countAt(now)))
+    val rhythmIntensity = reading.rhythmEnergy.map(e => math.max(settings.quietest, math.min(settings.loudest, e)))
     Effects(intensity, hueShift, if (flash > 0.005) flash else 0.0, sparkle, roles, rhythm, reading.pitch * settings.colourReach,
-      settings.colourSwell)
+      settings.colourSwell, rhythmIntensity)
   }
 }

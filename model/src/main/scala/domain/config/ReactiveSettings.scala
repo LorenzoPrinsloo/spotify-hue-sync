@@ -7,7 +7,7 @@ import io.circe.Codec
  * How the show reacts to live audio, beyond the beat.
  *
  * Each light gets a job from `roles`, repeated across the zone in channel order. Rhythm lights pulse with the bar's
- * kick pattern. Colour lights swell with `colourSwell`, once every couple of beats, and move up to `colourReach` palette
+ * kick pattern, calmed by `rhythm`. Colour lights swell with `colourSwell`, once every couple of beats, and move up to `colourReach` palette
  * colours along the palette as the music goes higher or lower. Pulse lights do the classic travelling pulse, their palette turning by up to `colourShift`
  * degrees as the treble picks up or drops away.
  *
@@ -29,5 +29,6 @@ case class ReactiveSettings(
   sparkleRatio: Double = 4.0,
   roles: List[LightRole] = List(LightRole.Rhythm, LightRole.Colour),
   colourReach: Double = 1.0,
-  colourSwell: SwellSettings = SwellSettings()
+  colourSwell: SwellSettings = SwellSettings(),
+  rhythm: RhythmSettings = RhythmSettings()
 ) derives Codec.AsObject

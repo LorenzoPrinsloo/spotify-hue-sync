@@ -139,6 +139,49 @@ class LightShowConfigSpec extends FunSuite {
     assertEquals(load("light-show.reactive.colour-swell.beats = 4").map(_.lightShow.reactive.colourSwell), Right(SwellSettings(beats = 4)))
   }
 
+  test("the rhythm settings default to a calmer show") {
+    assertEquals(load().map(_.lightShow.reactive.rhythm), Right(RhythmSettings(160, 0.3, 0.5)))
+  }
+
+  test("setting one rhythm key keeps the defaults for the other two") {
+    assertEquals(
+      load("light-show.reactive.rhythm.threshold = 0.6").map(_.lightShow.reactive.rhythm),
+      Right(RhythmSettings(160, 0.6, 0.5))
+    )
+    assertEquals(
+      load("light-show.reactive.rhythm.min-gap-ms = 0").map(_.lightShow.reactive.rhythm),
+      Right(RhythmSettings(0, 0.3, 0.5))
+    )
+  }
+
+  private val rhythmRanges = List(
+    ("min-gap-ms", "reactive.rhythm.min-gap-ms must be between 0 and 400", List("0", "100", "400"), List("-10", "410")),
+    ("threshold", "reactive.rhythm.threshold must be between 0 and 0.9", List("0", "0.5", "0.9"), List("-0.05", "0.95", "NaN")),
+    ("smoothing", "reactive.rhythm.smoothing must be between 0 and 0.9", List("0", "0.5", "0.9"), List("-0.05", "0.95", "NaN"))
+  )
+
+  rhythmRanges.foreach { (key, message, inside, outside) =>
+    test(s"rhythm $key accepts its range and rejects values outside it") {
+      inside.foreach(v => assert(load(s"light-show.reactive.rhythm.$key = $v").isRight, v))
+      outside.foreach { v =>
+        val loaded = load(s"light-show.reactive.rhythm.$key = $v")
+        assert(loaded.left.exists(_.contains(message)), s"$v: $loaded")
+      }
+    }
+
+    test(s"rhythm $key out of range is the only problem found") {
+      val bad = outside.map { v =>
+        val r = RhythmSettings()
+        key match {
+          case "min-gap-ms" => r.copy(minGapMs = v.toLong)
+          case "threshold" => r.copy(threshold = v.toDouble)
+          case _ => r.copy(smoothing = v.toDouble)
+        }
+      }
+      bad.foreach(r => assertEquals(LightShowConfig.problems(LightShowConfig(reactive = ReactiveSettings(rhythm = r))), List(message)))
+    }
+  }
+
   test("an unknown beat source or an impossible tempo range is rejected") {
     assert(load("light-show.beat-source = \"microphone\"").isLeft)
     assert(load("light-show.audio.min-bpm = 150\nlight-show.audio.max-bpm = 100").isLeft)

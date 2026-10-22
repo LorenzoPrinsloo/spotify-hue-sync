@@ -1,6 +1,6 @@
 package ui
 
-import domain.config.{AudioSettings, BeatSource, LightShowConfig, PulseSettings, ReactiveSettings, SwellSettings}
+import domain.config.{AudioSettings, BeatSource, LightShowConfig, PulseSettings, ReactiveSettings, RhythmSettings, SwellSettings}
 import domain.engine.LightRole
 
 /** Every setting on the page, grouped as it's shown. */
@@ -13,6 +13,9 @@ object Sections {
 
   private def swell(change: (SwellSettings, Double) => SwellSettings): Change =
     (c, v) => c.copy(reactive = c.reactive.copy(colourSwell = change(c.reactive.colourSwell, v)))
+
+  private def rhythm(change: (RhythmSettings, Double) => RhythmSettings): Change =
+    (c, v) => c.copy(reactive = c.reactive.copy(rhythm = change(c.reactive.rhythm, v)))
 
   private def reactive(change: (ReactiveSettings, Double) => ReactiveSettings): Change =
     (c, v) => c.copy(reactive = change(c.reactive, v))
@@ -101,6 +104,30 @@ object Sections {
         min = 0, max = 4, step = 0.05,
         get = _.pulse.peakBoost,
         set = pulse((p, v) => p.copy(peakBoost = v))
+      ),
+      Slider(
+        key = "reactive.rhythm.min-gap-ms",
+        label = "Minimum gap (ms)",
+        help = "Kicks closer together than this merge into one pulse. 0 switches it off.",
+        min = 0, max = 400, step = 10,
+        get = _.reactive.rhythm.minGapMs.toDouble,
+        set = rhythm((r, v) => r.copy(minGapMs = millis(v)))
+      ),
+      Slider(
+        key = "reactive.rhythm.threshold",
+        label = "Weak-hit threshold",
+        help = "How far a kick must stand out from the bar's usual to light; higher drops more weak hits. 0 switches it off.",
+        min = 0, max = 0.9, step = 0.05,
+        get = _.reactive.rhythm.threshold,
+        set = rhythm((r, v) => r.copy(threshold = v))
+      ),
+      Slider(
+        key = "reactive.rhythm.smoothing",
+        label = "Smoothing",
+        help = "How slowly the rhythm lights' strength moves from one bar to the next; higher is steadier. 0 switches it off.",
+        min = 0, max = 0.9, step = 0.05,
+        get = _.reactive.rhythm.smoothing,
+        set = rhythm((r, v) => r.copy(smoothing = v))
       )
     ),
     unused = unlessPlaying(Set(LightRole.Rhythm, LightRole.Pulse), "No light is a rhythm or pulse light")

@@ -28,10 +28,11 @@ object Settings {
       .map((beats, curve, rest, boost) => SwellSettings(beats, swellAttack, swellSustain, curve, rest, boost))
     roles <- Gen.choose(1, 4).flatMap(n => Gen.listOfN(n, Gen.oneOf(LightRole.values.toList)))
     quietest <- Gen.choose(0.05, 1.0)
+    rhythm <- Gen.zip(Gen.choose(0L, 400L), Gen.choose(0.0, 0.9), Gen.choose(0.0, 0.9)).map(RhythmSettings(_, _, _))
     reactive <- Gen.zip(Gen.oneOf(true, false), Gen.choose(quietest, 3.0), Gen.choose(0.0, 90.0), Gen.choose(0.0, 1.0), Gen.choose(1.01, 2.0),
       Gen.choose(1.5, 10.0))
       .map((enabled, loudest, shift, flash, hitRatio, sparkleRatio) =>
-        ReactiveSettings(enabled, quietest, loudest, shift, flash, 200, hitRatio, 0.6, 100, sparkleRatio, roles, 1.0, swell)
+        ReactiveSettings(enabled, quietest, loudest, shift, flash, 200, hitRatio, 0.6, 100, sparkleRatio, roles, 1.0, swell, rhythm)
       )
     resting <- Colours.rgb
     fade <- Gen.choose(0L, 10000L)

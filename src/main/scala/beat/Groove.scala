@@ -1,5 +1,7 @@
 package beat
 
+import domain.config.RhythmSettings
+
 /**
  * The kick pattern of a bar: how hard the kick drum's range hits on each sixteenth of a four-beat bar. It's learnt
  * along the beat grid, so the lights can play it back on time, ahead of each hit, instead of reacting to hits after
@@ -8,7 +10,7 @@ package beat
  * `shape` averages each sixteenth over the last several bars, which is steady enough to show the pattern; `recent`
  * over the last bar or two, which shows whether it's still being played. `usualLift` is how far the pattern usually
  * stands out, `learnt` how many sixteenths have been heard, and `step` the one being heard now, counted along the grid,
- * with the `sum` and `count` of the kick power heard in it so far.
+ * with the `sum` and `count` of the kick power heard in it so far. `calm` is what the rhythm lights make of it.
  */
 case class Groove(
   shape: Vector[Double],
@@ -17,7 +19,8 @@ case class Groove(
   learnt: Long,
   step: Long,
   sum: Double = 0.0,
-  count: Int = 0
+  count: Int = 0,
+  calm: Calm.State = Calm.State()
 ) {
 
   /** Moves on to `beats` beats into the grid, having just heard `kick` power in the kick drum's range. */
@@ -40,6 +43,13 @@ case class Groove(
     }
   }
 
+  /** [[at]], then the rhythm lights calmed by `settings` at `bpm`, with the music's `energy` now. */
+  def at(beats: Double, kick: Double, energy: Double, settings: RhythmSettings, bpm: Double): Groove = {
+    val next = at(beats, kick)
+    if (next.learnt < Groove.Steps) next
+    else next.copy(calm = Calm.advance(next.calm, next.learnt, next.step, next.levels, next.playing, energy, settings, bpm))
+  }
+
   /**
    * How strongly each sixteenth of the bar is played, from 0 to 1: the loudest is 1 and anything no louder than the
    * typical sixteenth is 0. While the kicks are quieter than usual, or gone, the whole pattern fades with them. Until
@@ -47,17 +57,31 @@ case class Groove(
    */
   def pattern: Vector[Double] =
     if (learnt < Groove.Steps) Groove.Prior
-    else {
-      val sorted = shape.sorted
-      val middle = sorted(Groove.Steps / 2)
-      val lift = sorted.last - middle
-      val playing = if (usualLift <= 1e-12) 0.0 else math.min(1.0, Groove.lift(recent) / usualLift)
-      if (lift <= 1e-12) Vector.fill(Groove.Steps)(0.0)
-      else shape.map(v => math.max(0.0, math.min(1.0, (v - middle) / lift)) * playing)
-    }
+    else levels.map(_ * playing)
+
+  /** Each sixteenth's level between the bar's typical sixteenth (0) and its loudest (1), before the kicks' strength. */
+  def levels: Vector[Double] = {
+    val middle = Groove.typical(shape)
+    val lift = shape.max - middle
+    if (lift <= Groove.Negligible) Vector.fill(Groove.Steps)(0.0)
+    else shape.map(v => Groove.clamp((v - middle) / lift))
+  }
+
+  /** How hard the kicks are playing now compared with usual, from 0 to 1. */
+  def playing: Double = if (usualLift <= Groove.Negligible) 0.0 else Groove.clamp(Groove.lift(recent) / usualLift)
+
+  /** The pattern the rhythm lights play: the calmed one, or a plain kick on every beat until a bar is learnt. */
+  def lights: Vector[Double] = if (learnt < Groove.Steps) Groove.Prior else calm.pattern
+
+  /** The music's energy smoothed for the rhythm lights, once a bar is learnt and while smoothing. */
+  def rhythmEnergy: Option[Double] = if (learnt < Groove.Steps) None else calm.energy
 }
 
 object Groove {
+
+  /** A lift this small is no pattern at all. */
+  val Negligible: Double = 1e-12
+
   val BeatsPerBar: Int = 4
   val StepsPerBeat: Int = 4
   val Steps: Int = BeatsPerBar * StepsPerBeat
@@ -84,8 +108,12 @@ object Groove {
   def slot(step: Long): Int = Math.floorMod(step, Steps.toLong).toInt
 
   /** How far the loudest sixteenth stands above the typical one. */
-  def lift(values: Vector[Double]): Double = {
-    val sorted = values.sorted
-    sorted.last - sorted(Steps / 2)
-  }
+  def lift(values: Vector[Double]): Double =
+    values.max - typical(values)
+
+  /** The bar's typical sixteenth: the median of `values`. */
+  def typical(values: Vector[Double]): Double = values.sorted.apply(Steps / 2)
+
+  /** `v` held between 0 and 1. */
+  def clamp(v: Double): Double = math.max(0.0, math.min(1.0, v))
 }
