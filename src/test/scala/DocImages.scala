@@ -4,7 +4,6 @@ import domain.hue.Zone
 import java.awt.Color
 import java.nio.file.{Files, Path, Paths}
 import scala.concurrent.duration.*
-import scala.util.Random
 
 /** Regenerates the images in docs/images from the real colour engine and pulse code. Run with `sbt "Test/runMain DocImages"`. */
 object DocImages {
@@ -37,13 +36,7 @@ object DocImages {
     println(s"wrote ${out.resolve(name)}")
   }
 
-  /** A Random whose colour draws return the fixed base colour, so the images use Palette.random itself. */
-  private def fixedBase: Random = new Random(new java.util.Random {
-    private val channels = Iterator.continually(List(base.r.value, base.g.value, base.b.value)).flatten
-    override def nextInt(bound: Int): Int = channels.next()
-  })
-
-  private def palette(mode: PaletteType): Palette = Palette.random(mode)(using fixedBase).get
+  private def palette(mode: PaletteType): Palette = Palette.from(base, mode).get
 
   private def hex(c: RGB): String = f"#${c.r.value}%02x${c.g.value}%02x${c.b.value}%02x"
   private def hsb(c: RGB): Array[Float] = Color.RGBtoHSB(c.r.value, c.g.value, c.b.value, new Array[Float](3))

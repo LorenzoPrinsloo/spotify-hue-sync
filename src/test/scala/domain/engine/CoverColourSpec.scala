@@ -30,6 +30,13 @@ class CoverColourSpec extends ScalaCheckSuite {
   private def isNear(pixels: Seq[RGB], target: Double, tolerance: Double): Boolean =
     baseHueDegrees(pixels).exists(degreesApart(_, target) <= tolerance)
 
+  test("a cover colour paler than the base minimums is lifted to them, keeping its hue") {
+    val pale = Vector.fill(100)(pixel(200.0, saturation = 0.4, brightness = 0.4))
+    val base = CoverColour.base(pale).get
+    assert(base.hsb(1) >= RGB.BaseSaturation && base.hsb(2) >= RGB.BaseBrightness)
+    assert(isNear(pale, 200.0, 5.0))
+  }
+
   test("a mostly vivid red cover gives red") {
     assert(isNear(patch(80, 0.0) ++ neutral(20), 0.0, 10.0))
   }

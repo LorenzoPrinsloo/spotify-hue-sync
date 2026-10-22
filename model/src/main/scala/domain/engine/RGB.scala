@@ -67,14 +67,38 @@ object RGB {
 
   private def channel(v: Double): ByteInt = Refined.unsafeApply(math.round(math.max(0.0, math.min(255.0, v))).toInt)
 
-  def random(using rnd: Random = Random): Option[RGB] =
-    safe(
-      rnd.nextInt(256),
-      rnd.nextInt(256),
-      rnd.nextInt(256)
-    )
+  /** The least saturation and brightness a base colour may have, so the palette built on it is never pale or dark. */
+  val BaseSaturation: Float = 0.6f
+  val BaseBrightness: Float = 0.5f
+
+  /** A uniformly random hue with saturation in [0.6, 1] and brightness in [0.5, 1]; always three draws from `rnd`. */
+  def random(using rnd: Random = Random): Option[RGB] = {
+    val hue = rnd.nextDouble()
+    val saturation = BaseSaturation + (1 - BaseSaturation) * rnd.nextDouble()
+    val brightness = BaseBrightness + (1 - BaseBrightness) * rnd.nextDouble()
+    Some(fromHsb(hue.toFloat, saturation.toFloat, brightness.toFloat).withMinimums)
+  }
 
   extension (c: RGB) {
+
+    /**
+     * The colour lifted to at least `BaseSaturation` and `BaseBrightness` with its hue kept, measured after rounding;
+     * a colour that already meets both comes back unchanged.
+     */
+    def withMinimums: RGB = {
+      val Array(h, s, b) = c.hsb
+      if (s >= BaseSaturation && b >= BaseBrightness) c
+      else {
+        val brightness = math.max(b, BaseBrightness)
+        Iterator
+          .iterate(math.max(s, BaseSaturation))(sat => math.min(1f, sat + 0.001f))
+          .take(1001)
+          .map(fromHsb(h, _, brightness))
+          .find(_.hsb(1) >= BaseSaturation)
+          .getOrElse(fromHsb(h, 1f, brightness))
+      }
+    }
+
     def compliment: Option[RGB] = {
       val max = 255
       safe(

@@ -107,7 +107,7 @@ A **monochromatic** palette stays on one spoke of the wheel and varies only in b
 
 ### Palettes
 
-A palette is built from a base colour: the song's [album cover colour](#the-base-colour-from-the-album-cover), or a random one when there isn't one (`Palette.random(mode)`). Choose the type with `light-show.palette`:
+A palette is built from a base colour: the song's [album cover colour](#the-base-colour-from-the-album-cover), or a random one when there isn't one (`Palette.random(mode)`). A base colour is never pale or dark: a random one has a saturation of at least 60% and a brightness of at least 50%, and a cover colour below either is raised to it with its hue kept. Choose the type with `light-show.palette`:
 
 | `light-show.palette` | `PaletteType` | Colours |
 |---|---|---|
@@ -127,7 +127,7 @@ A palette is generated the first time a track is seen and cached in a `Ref` for 
 
 ### The base colour from the album cover
 
-When a song starts, the app fetches its album cover and takes the most vivid colour that covers about 5% or more of it. Black, white, grey and muddy pixels are left out, and neighbouring hues are grouped so that a colour lying across a bin edge isn't split in two. The palette of the configured type is built from that colour.
+When a song starts, the app fetches its album cover and takes the most vivid colour that covers about 5% or more of it. Black, white, grey and muddy pixels are left out, and neighbouring hues are grouped so that a colour lying across a bin edge isn't split in two. If that colour is below 60% saturation or 50% brightness it is raised to those minimums, keeping its hue, and the palette of the configured type is built from the result.
 
 - **A time limit.** The app waits at most 1 second for the cover.
 - **A fallback.** A random palette is used for the whole song when the cover is missing, slow, can't be fetched or read, or has no vivid colour. A failed or slow cover logs one warning.
@@ -394,7 +394,7 @@ The [roadmap](roadmap.md) tracks fixes for these.
 
 ## Regenerating the images
 
-The images on this page are drawn from the app's own code (`Palette.random`, `RGB`, `Pulse`, `Renderer` and `SyncEngine.pulseFrame`), so they stay accurate when the engine changes. The comparison in [Keeping the colour at the peak](#keeping-the-colour-at-the-peak) also redraws the old RGB multiplication, for reference. To redraw them:
+The images on this page are drawn from the app's own code (`Palette.from` with a fixed base colour, `RGB`, `Pulse`, `Renderer` and `SyncEngine.pulseFrame`), so they stay accurate when the engine changes. The comparison in [Keeping the colour at the peak](#keeping-the-colour-at-the-peak) also redraws the old RGB multiplication, for reference. To redraw them:
 
 ```sh
 sbt "Test/runMain DocImages"

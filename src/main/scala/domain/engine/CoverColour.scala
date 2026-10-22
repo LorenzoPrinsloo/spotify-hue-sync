@@ -76,7 +76,7 @@ object CoverColour {
         val turns = math.atan2(w.sin, w.cos) / (2 * math.Pi)
         val hue = turns - math.floor(turns)
         val (r, g, b) = Hsb.toRgb(hue.toFloat, (w.saturation / w.count).toFloat, (w.brightness / w.count).toFloat)
-        RGB.safe(r, g, b)
+        RGB.safe(r, g, b).map(_.withMinimums)
       }
   }
 }
