@@ -250,7 +250,7 @@ With live audio, each light has a job, set by `reactive.roles` and repeated acro
 
 | Role | What it follows | What it does |
 |---|---|---|
-| `rhythm` | The kick pattern of the bar | Pulses on the sixteenths where the kick hits, as hard as it usually hits there, all rhythm lights together. Until there's a live beat, it pulses on every beat |
+| `rhythm` | The kick pattern of the bar | Pulses on the sixteenths where the kick hits, as hard as it usually hits there, calmed so that it follows the music rather than every flicker, all rhythm lights together. Until there's a live beat, it pulses on every beat |
 | `colour` | How high the vocals, leads and chords sit, and the beat | Swells once every two beats (`colour-swell`), and moves along the palette: up to `colour-reach` colours towards the end as the music goes higher, towards the start as it goes lower |
 | `pulse` | The beat | The classic pulse travelling across the zone, its palette turning with the treble |
 
@@ -258,7 +258,15 @@ With live audio, each light has a job, set by `reactive.roles` and repeated acro
 
 **Rhythm lights play the pattern ahead of time.** Reacting to each kick as it's heard would light up after it: capture, analysis and the bridge add up to about 100 ms, which is easy to see. Instead, `Groove` learns where in the bar the kick falls, in sixteenths of a four-beat bar counted along the beat grid, and the lights play that pattern on the predicted grid, shifted by `audio.offset-ms` like the beat pulse. `BeatState.number` keeps counting beats from the moment the tracker locks on, so the pattern stays in place as the tracker re-estimates.
 
-The kick is heard as a jump in the power between about 40 and 130 Hz. This is raw power, not the compressed onset strength the beat tracker uses: on the six songs recorded through BlackHole, the compressed low end rose about equally on every sixteenth, because dance tracks duck the bass on each kick and it swells back in between, while the raw power landed mostly on the beat. Each sixteenth's average power is learnt over about six bars, and a sixteenth lights in proportion to how far it stands above the typical sixteenth of the bar. A shorter average over the last bar or two scales the whole pattern, so when the kick drops out for a breakdown the rhythm lights fade within a few bars, and come back when it returns. Until a full bar has been heard after locking on, they pulse on every beat. The six recorded songs are four-on-the-floor dance tracks, so there the pattern is mostly a kick on every beat; music with a sparser or syncopated kick shows more of a pattern.
+The kick is heard as a jump in the power between about 40 and 130 Hz. This is raw power, not the compressed onset strength the beat tracker uses: on the six songs recorded through BlackHole, the compressed low end rose about equally on every sixteenth, because dance tracks duck the bass on each kick and it swells back in between, while the raw power landed mostly on the beat. Each sixteenth's average power is learnt over about six bars, and a sixteenth lights in proportion to how far it stands above the typical sixteenth of the bar. A shorter average over the last bar or two sets how strong the whole pattern is, and that strength is smoothed from bar to bar. When the kick drops out for a breakdown, the rhythm lights rest within 4 bars. When it returns, they are back to at least half strength within 2 bars.
+
+Three settings calm the pattern further. Each is switched off at 0.
+
+- `reactive.rhythm.min-gap-ms`: kicks closer together than this merge into one pulse, on the first kick's sixteenth, at the strongest kick's strength. The default of 160 merges sixteenths above about 94 BPM, but keeps drum-and-bass eighths at 174 BPM apart.
+- `reactive.rhythm.threshold`: a sixteenth lights only once it stands out by this fraction of the gap between the bar's typical sixteenth and its loudest. The strength is rescaled as (v − t)/(1 − t), so the loudest sixteenth is still full.
+- `reactive.rhythm.smoothing`: the pattern's strength and the rhythm lights' brightness follow the music slowly from bar to bar. At 0.9 a large change shows at once, and the rest catches up within 18 bars.
+
+Until a full bar has been heard after locking on, they pulse on every beat, as before. The six recorded songs are four-on-the-floor dance tracks, so there the pattern is mostly a kick on every beat; music with a sparser or syncopated kick shows more of a pattern.
 
 **Colour lights swell at half the tempo.** A swell rises slowly over 45% of its two beats, holds for 10%, then fades with the same curve as the pulse, peaking on every other beat. Its brightness runs from a quarter of the colour's own up to the colour's own, without the pulse's boost: boosted brightness is capped at full, which would flatten the top of the swell into a plateau and make the slow rise look quick. With a live beat, the swell is timed by the beat count from locking on, so it stays on the same beats as the tracker re-estimates; without one, it follows the same timing as the pulse.
 
@@ -334,6 +342,9 @@ light-show {
 | `reactive.enabled` | `true` | Turns the [reactions to the music](#reacting-to-the-music) on or off |
 | `reactive.quietest`, `reactive.loudest` | `0.35`, `1.6` | Brightness range as the energy changes |
 | `reactive.roles` | `["rhythm", "colour"]` | Each light's [role](#light-roles), repeated across the zone in channel order |
+| `reactive.rhythm.min-gap-ms` | `160` | Kicks closer than this (0–400 ms) merge into one rhythm pulse; 0 switches it off |
+| `reactive.rhythm.threshold` | `0.3` | How far a sixteenth must stand out (0–0.9) before the rhythm lights play it; 0 switches it off |
+| `reactive.rhythm.smoothing` | `0.5` | How slowly the rhythm pattern and brightness follow the music (0–0.9); 0 switches it off |
 | `reactive.colour-reach` | `1.0` | How many palette colours the colour lights move at the highest or lowest pitch |
 | `reactive.colour-swell.beats` | `2` | Colour lights swell once every this many beats, peaking on the beat |
 | `reactive.colour-swell.attack`, `.sustain`, `.decay-curve` | `0.45`, `0.1`, `2.0` | The swell's shape, as for the pulse: a slow rise, a brief hold, then the fade |
