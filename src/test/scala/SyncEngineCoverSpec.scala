@@ -1,5 +1,6 @@
 import cats.effect.{Deferred, IO, Ref}
 import cats.effect.testkit.TestControl
+import cats.syntax.all.*
 import ch.qos.logback.classic.Level
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
@@ -18,7 +19,7 @@ import scala.concurrent.duration.*
 import scala.util.Random
 import settings.{LiveSettings, SettingsRoutes, ShowControls}
 import testkit.{Covers, Tls}
-import testkit.Colours.{hue, hueDistance}
+import testkit.Colours.{brightness, hue, hueDistance, saturation}
 
 import java.net.ConnectException
 
@@ -86,7 +87,7 @@ class SyncEngineCoverSpec extends CatsEffectSuite {
   }
 
   private def world[A](setup: Setup, duration: FiniteDuration = 6.seconds)(body: Env => IO[A]): IO[A] =
-    Tls.capturedLogs.use { logs =>
+    (Tls.capturedLogs, Tls.loggingAt("<empty>.SyncEngine", Level.INFO)).tupled.use { (logs, _) =>
       TestControl.executeEmbed {
         for {
           session <- Ref.of[IO, Option[SpotifySession]](Some(SpotifySession("token", "refresh")))
@@ -122,6 +123,20 @@ class SyncEngineCoverSpec extends CatsEffectSuite {
 
   private def settle: IO[Unit] = IO.sleep(3.seconds)
   private def randomBase(seed: Long): RGB = RGB.random(using new Random(seed)).get
+  private def oldDraw(seed: Long): RGB = {
+    val r = new Random(seed)
+    RGB.safe(r.nextInt(256), r.nextInt(256), r.nextInt(256)).get
+  }
+  private def isPale(c: RGB): Boolean = saturation(c) < 0.6 || brightness(c) < 0.5
+
+  private def assertVividAndLogged(env: Env, show: TrackShow): Unit = {
+    assert(saturation(show.base) >= 0.6, show.base.hex)
+    assert(brightness(show.base) >= 0.5, show.base.hex)
+    val logged = Tls.logged(env.logs).exists { e =>
+      e.getLevel == Level.INFO && e.getLoggerName.endsWith("SyncEngine") && e.getFormattedMessage.contains(s"random base ${show.base.hex}")
+    }
+    assert(logged, show.base.hex)
+  }
   private def isResting(f: Frame): Boolean = f.updates.forall(_.color == resting)
 
   test("a red cover gives a red base and the palette built from it") {
@@ -160,13 +175,15 @@ class SyncEngineCoverSpec extends CatsEffectSuite {
   }
 
   test("a mostly neutral cover gives a random base and no warning") {
-    world(Setup(coverOf = _ => cover("grey"), seed = 5L)) { env =>
+    world(Setup(coverOf = _ => cover("grey"), seed = 4L)) { env =>
       for {
         _ <- settle
         show <- env.engine.showFor(track1)
         n <- env.requests.get
       } yield {
-        assertEquals(show.base, randomBase(5L))
+        assertEquals(show.base, randomBase(4L))
+        assert(isPale(oldDraw(4L)), oldDraw(4L).hex)
+        assertVividAndLogged(env, show)
         assertEquals(n, 1)
         assertEquals(env.warnings(track1), Nil)
       }
@@ -175,12 +192,14 @@ class SyncEngineCoverSpec extends CatsEffectSuite {
 
   List("error" -> "refused", "refused" -> "unreachable", "garbage" -> "unreadable").foreach { (name, reason) =>
     test(s"a cover that fails with $reason gives a random base and one warning") {
-      world(Setup(coverOf = _ => cover(name), seed = 9L)) { env =>
+      world(Setup(coverOf = _ => cover(name), seed = 4L)) { env =>
         for {
           _ <- settle
           show <- env.engine.showFor(track1)
         } yield {
-          assertEquals(show.base, randomBase(9L))
+          assertEquals(show.base, randomBase(4L))
+          assert(isPale(oldDraw(4L)), oldDraw(4L).hex)
+          assertVividAndLogged(env, show)
           assertEquals(env.warnings(track1).map(_.getMDCPropertyMap.get("reason")), List(reason))
         }
       }
@@ -188,7 +207,7 @@ class SyncEngineCoverSpec extends CatsEffectSuite {
   }
 
   test("a cover that arrives late is left for the next song with the same cover") {
-    val setup = Setup(coverOf = _ => cover("slow"), seed = 3L, wrap = real => url => real.baseColour(url).uncancelable)
+    val setup = Setup(coverOf = _ => cover("slow"), seed = 4L, wrap = real => url => real.baseColour(url).uncancelable)
     world(setup, duration = 8.seconds) { env =>
       for {
         _ <- IO.sleep(5.seconds)
@@ -200,8 +219,10 @@ class SyncEngineCoverSpec extends CatsEffectSuite {
       } yield {
         val firstPlaying = frames.collectFirst { case (t, f) if !isResting(f) => t }.get
         assert(firstPlaying <= 1.second + SyncEngine.CoverWait + 100.millis, firstPlaying.toString)
-        assertEquals(show.base, randomBase(3L))
-        assertEquals(palette, Some(Palette.from(randomBase(3L), PaletteType.Triadic).get))
+        assertEquals(show.base, randomBase(4L))
+        assert(isPale(oldDraw(4L)), oldDraw(4L).hex)
+        assertVividAndLogged(env, show)
+        assertEquals(palette, Some(Palette.from(randomBase(4L), PaletteType.Triadic).get))
         assertEquals(env.warnings(track1).map(_.getMDCPropertyMap.get("reason")), List("timed_out"))
         assert(hueDistance(hue(next.base), 0.0) < 0.03, next.base.hex)
         assertEquals(n, 1)
@@ -234,6 +255,8 @@ class SyncEngineCoverSpec extends CatsEffectSuite {
         n <- env.requests.get
       } yield {
         assertEquals(show.base, randomBase(4L))
+        assert(isPale(oldDraw(4L)), oldDraw(4L).hex)
+        assertVividAndLogged(env, show)
         assertEquals(n, 0)
         assertEquals(env.warnings(track1), Nil)
       }
@@ -256,21 +279,23 @@ class SyncEngineCoverSpec extends CatsEffectSuite {
 
   test("with the setting off there's no cover request and the palette is random") {
     val off = triadic.copy(albumCoverColours = false)
-    world(Setup(show = off, seed = 8L)) { env =>
+    world(Setup(show = off, seed = 4L)) { env =>
       for {
         _ <- settle
         show <- env.engine.showFor(track1)
         n <- env.requests.get
       } yield {
         assertEquals(n, 0)
-        assertEquals(show.palette, Palette.random(PaletteType.Triadic)(using new Random(8L)).get)
+        assertEquals(show.palette, Palette.random(PaletteType.Triadic)(using new Random(4L)).get)
+        assert(isPale(oldDraw(4L)), oldDraw(4L).hex)
+        assertVividAndLogged(env, show)
       }
     }
   }
 
   test("turning the setting off during a song keeps that song's show and the next song makes no request") {
     val setup = Setup(
-      seed = 6L,
+      seed = 4L,
       coverOf = id => if (id == "track-1") cover("red") else cover("blue"),
       trackAt = t => if (t < 3.seconds) "track-1" else "track-2"
     )
@@ -285,7 +310,9 @@ class SyncEngineCoverSpec extends CatsEffectSuite {
         n <- env.requests.get
       } yield {
         assert(hueDistance(hue(first.base), 0.0) < 0.03, first.base.hex)
-        assertEquals(second.base, randomBase(6L))
+        assertEquals(second.base, randomBase(4L))
+        assert(isPale(oldDraw(4L)), oldDraw(4L).hex)
+        assertVividAndLogged(env, second)
         assertEquals(n, 1)
       }
     }
