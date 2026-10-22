@@ -36,7 +36,7 @@ object Palette {
 
   /** A palette of type `mode` around a random base colour: one `RGB.random` draw, so a seed fixes the palette. */
   def random(mode: PaletteType)(using rnd: Random = Random): Option[Palette] =
-    RGB.random.flatMap(from(_, mode))
+    from(RGB.random, mode)
 
   extension (pal: Palette) {
 

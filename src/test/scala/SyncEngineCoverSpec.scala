@@ -129,7 +129,7 @@ class SyncEngineCoverSpec extends CatsEffectSuite {
     }
 
   private def settle: IO[Unit] = IO.sleep(3.seconds)
-  private def randomBase(seed: Long): RGB = RGB.random(using new Random(seed)).get
+  private def randomBase(seed: Long): RGB = RGB.random(using new Random(seed))
   private def oldDraw(seed: Long): RGB = {
     val r = new Random(seed)
     RGB.safe(r.nextInt(256), r.nextInt(256), r.nextInt(256)).get

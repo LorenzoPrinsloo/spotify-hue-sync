@@ -72,11 +72,11 @@ object RGB {
   val BaseBrightness: Float = 0.5f
 
   /** A uniformly random hue with saturation in [0.6, 1] and brightness in [0.5, 1]; always three draws from `rnd`. */
-  def random(using rnd: Random = Random): Option[RGB] = {
+  def random(using rnd: Random = Random): RGB = {
     val hue = rnd.nextDouble()
     val saturation = BaseSaturation + (1 - BaseSaturation) * rnd.nextDouble()
     val brightness = BaseBrightness + (1 - BaseBrightness) * rnd.nextDouble()
-    Some(fromHsb(hue.toFloat, saturation.toFloat, brightness.toFloat).withMinimums)
+    fromHsb(hue.toFloat, saturation.toFloat, brightness.toFloat).withMinimums
   }
 
   extension (c: RGB) {

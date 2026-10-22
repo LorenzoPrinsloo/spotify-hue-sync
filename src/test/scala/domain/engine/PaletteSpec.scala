@@ -45,7 +45,7 @@ class PaletteSpec extends ScalaCheckSuite {
 
   property("palettes built from a base colour start from that colour") {
     forAll { (seed: Long) =>
-      val base = RGB.random(using new Random(seed)).get
+      val base = RGB.random(using new Random(seed))
       generate(PaletteType.Triadic, seed).map(_.colors) == Some(base.triadic.toVector) &&
       generate(PaletteType.Tetradic, seed).map(_.colors) == Some(base.tetradic.toVector) &&
       generate(PaletteType.Monochromatic, seed).map(_.colors) == Some(base.monochromatic.toVector)
@@ -67,7 +67,7 @@ class PaletteSpec extends ScalaCheckSuite {
   property("a random palette is the palette built from the seed's random base colour") {
     forAll { (seed: Long) =>
       expectedSizes.keys.forall { t =>
-        Palette.random(t)(using new Random(seed)) == RGB.random(using new Random(seed)).flatMap(Palette.from(_, t))
+        Palette.random(t)(using new Random(seed)) == Palette.from(RGB.random(using new Random(seed)), t)
       }
     }
   }

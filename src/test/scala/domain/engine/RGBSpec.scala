@@ -9,7 +9,7 @@ import testkit.Colours.{*, given}
 
 class RGBSpec extends ScalaCheckSuite {
 
-  private def random(seed: Long): RGB = RGB.random(using new Random(seed)).get
+  private def random(seed: Long): RGB = RGB.random(using new Random(seed))
 
   private val coverColour: Gen[RGB] = for {
     h <- Gen.choose(0f, 0.999f)
