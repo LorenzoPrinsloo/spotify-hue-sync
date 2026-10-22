@@ -268,8 +268,7 @@ object SyncEngine:
           val level = Pulse.onBeat(pulses - i * settings.stagger, settings)
           (Pulse.brightness(level, settings, effects.intensity), if (effects.hueShift == 0) own else own.rotateHue(effects.hueShift))
         case LightRole.Rhythm =>
-          val level = effects.rhythm.fold(Pulse.onBeat(pulses, settings))(r => Pulse.rhythm(r.groove, r.beats, settings))
-          (Pulse.brightness(level, settings, effects.intensity), palette.getColor(i))
+          (effects.rhythmLight(pulses, settings), palette.getColor(i))
         case LightRole.Colour =>
           // Counted along the beat grid when there's a live beat, so every other beat stays the same beat as the tracker re-estimates.
           val beats = effects.rhythm.fold(pulses)(_.beats)

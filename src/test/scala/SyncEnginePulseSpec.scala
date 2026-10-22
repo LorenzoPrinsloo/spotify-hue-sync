@@ -134,6 +134,19 @@ class SyncEnginePulseSpec extends ScalaCheckSuite {
     }
   }
 
+  property("a rhythm light's brightness uses the rhythm intensity when there is one; pulse and colour lights don't") {
+    forAll(palettes, pulses, Gen.choose(0.1, 1.0), Gen.choose(0.1, 1.0)) { (palette, p, intensity, rhythmIntensity) =>
+      val roles = Vector(LightRole.Rhythm, LightRole.Pulse, LightRole.Colour)
+      val zone = Zone(zoneId, List(0, 1, 2))
+      val base = Effects(intensity = intensity, roles = roles)
+      val plain = SyncEngine.pulseFrame(zone, palette, p, settings, base).updates
+      val shifted = SyncEngine.pulseFrame(zone, palette, p, settings, base.copy(rhythmIntensity = Some(rhythmIntensity))).updates
+      val level = Pulse.onBeat(p, settings)
+      shifted(0).color == palette.getColor(0).scaleBrightness(Pulse.brightness(level, settings, rhythmIntensity)) &&
+      plain.tail == shifted.tail
+    }
+  }
+
   property("without a beat, rhythm lights pulse together on every pulse rather than in a wave") {
     forAll(channels, palettes, pulses) { (ids, palette, p) =>
       val effects = Effects(roles = Vector.fill(ids.size)(LightRole.Rhythm))

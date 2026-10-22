@@ -30,7 +30,8 @@ case class BeatTracker(
 ) {
 
   def reading: AudioReading =
-    AudioReading(beat, levels.energy, levels.treble, hit, sparkle, sparkles, levels.pitch, groove.fold(Vector.empty)(_.pattern), news)
+    AudioReading(beat, levels.energy, levels.treble, hit, sparkle, sparkles, levels.pitch, groove.fold(Vector.empty)(_.lights), news,
+      groove.flatMap(_.rhythmEnergy))
 
   def step(frame: AudioFrame): BeatTracker = {
     val s = settings
@@ -78,7 +79,7 @@ case class BeatTracker(
 
     // The kick pattern is learnt along the beat grid; a new lock starts a new one, since its beats are counted afresh.
     val nextGroove = nextBeat.map { b =>
-      groove.filter(_ => beat.isDefined).fold(Groove.start(b.countAt(now)))(_.at(b.countAt(now), onset.kick))
+      groove.filter(_ => beat.isDefined).fold(Groove.start(b.countAt(now)))(_.at(b.countAt(now), onset.kick, nextLevels.energy, s.rhythm, b.bpm))
     }
 
     copy(

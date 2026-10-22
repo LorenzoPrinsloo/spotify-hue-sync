@@ -7,7 +7,8 @@ package beat
  * below 1 quieter or duller, above 1 louder or brighter. `hit` is the latest big hit (a crash or a drop), `sparkle`
  * the latest treble onset (hi-hats, cymbals), and `sparkles` counts them, so each can land on a different light.
  * `pitch` is how high the vocals, leads and chords sit compared with usual for the track, from -1 (well below) to 1
- * (well above). `groove` is the bar's kick pattern (see [[Groove]]), empty without a beat. `news` is what the latest hop has to say about how the tempo was chosen.
+ * (well above). `groove` is the pattern the rhythm lights play (see [[Groove.lights]]), empty without a beat. `news` is what the latest hop has to say about how the tempo was chosen.
+ * `rhythmEnergy` is `energy` smoothed from bar to bar for the rhythm lights; without it they follow `energy`.
  */
 case class AudioReading(
   beat: Option[BeatState],
@@ -18,5 +19,6 @@ case class AudioReading(
   sparkles: Long = 0,
   pitch: Double = 0.0,
   groove: Vector[Double] = Vector.empty,
-  news: Vector[TempoNews] = Vector.empty
+  news: Vector[TempoNews] = Vector.empty,
+  rhythmEnergy: Option[Double] = None
 )
