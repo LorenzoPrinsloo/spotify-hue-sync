@@ -29,6 +29,7 @@ object LightShowConfig {
   def problems(c: LightShowConfig): List[String] = {
     val p = c.pulse
     val swell = c.reactive.colourSwell
+    val r = c.reactive.rhythm
     List(
       Option.when(c.area.exists(_.trim.isEmpty))("area can't be empty"),
       Option.when(c.defaultBpm <= 0)("default-bpm must be positive"),
@@ -60,7 +61,10 @@ object LightShowConfig {
       Option.when(swell.decayCurve <= 0)("reactive.colour-swell.decay-curve must be positive"),
       Option.when(swell.restLevel < 0 || swell.peakBoost < 0)(
         "reactive.colour-swell.rest-level and reactive.colour-swell.peak-boost can't be negative"
-      )
+      ),
+      Option.when(!(r.minGapMs >= 0 && r.minGapMs <= 400))("reactive.rhythm.min-gap-ms must be between 0 and 400"),
+      Option.when(!(r.threshold >= 0 && r.threshold <= 0.9))("reactive.rhythm.threshold must be between 0 and 0.9"),
+      Option.when(!(r.smoothing >= 0 && r.smoothing <= 0.9))("reactive.rhythm.smoothing must be between 0 and 0.9")
     ).flatten
   }
 

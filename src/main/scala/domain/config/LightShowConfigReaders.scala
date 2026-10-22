@@ -27,6 +27,7 @@ object LightShowConfigReaders {
   given ConfigReader[PauseSettings] = ConfigReader.derived[PauseSettings]
   given ConfigReader[AudioSettings] = ConfigReader.derived[AudioSettings]
   given ConfigReader[SwellSettings] = ConfigReader.derived[SwellSettings]
+  given ConfigReader[RhythmSettings] = ConfigReader.derived[RhythmSettings]
   given ConfigReader[ReactiveSettings] = ConfigReader.derived[ReactiveSettings]
 
   given ConfigReader[LightShowConfig] = ConfigReader.derived[LightShowConfig].emap { c =>

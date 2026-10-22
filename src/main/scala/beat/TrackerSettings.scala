@@ -1,6 +1,6 @@
 package beat
 
-import domain.config.LightShowConfig
+import domain.config.{LightShowConfig, RhythmSettings}
 import scala.concurrent.duration.*
 
 case class TrackerSettings(
@@ -19,7 +19,8 @@ case class TrackerSettings(
   phaseMemorySeconds: Double = 10.0,
   holdSeconds: Double = 10.0,
   hitRatio: Double = 1.15,
-  sparkleRatio: Double = 4.0
+  sparkleRatio: Double = 4.0,
+  rhythm: RhythmSettings = RhythmSettings()
 ) {
   val frameRate: Double = sampleRate / hop
   val hopDuration: FiniteDuration = (hop / sampleRate).seconds.toNanos.nanos
@@ -42,6 +43,7 @@ object TrackerSettings {
       maxBpm = show.audio.maxBpm,
       holdSeconds = show.audio.holdSeconds,
       hitRatio = show.reactive.hitRatio,
-      sparkleRatio = show.reactive.sparkleRatio
+      sparkleRatio = show.reactive.sparkleRatio,
+      rhythm = show.reactive.rhythm
     )
 }

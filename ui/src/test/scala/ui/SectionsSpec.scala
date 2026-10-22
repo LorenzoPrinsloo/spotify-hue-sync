@@ -27,6 +27,20 @@ class SectionsSpec extends munit.FunSuite {
     sliders.foreach(s => assert(s.get(defaults) >= s.min && s.get(defaults) <= s.max, s"${s.label}: ${s.get(defaults)}"))
   }
 
+  test("the rhythm sliders are with the rhythm and pulse lights and update the rhythm settings") {
+    val expected = List(
+      ("reactive.rhythm.min-gap-ms", 0.0, 400.0, 10.0),
+      ("reactive.rhythm.threshold", 0.0, 0.9, 0.05),
+      ("reactive.rhythm.smoothing", 0.0, 0.9, 0.05)
+    )
+    val found = expected.map((key, _, _, _) => Sections.rhythmAndPulse.sliders.find(_.key == key).get)
+    assertEquals(found.map(s => (s.key, s.min, s.max, s.step)), expected)
+    val set = found.map(s => s.set(defaults, s.max).reactive.rhythm)
+    assertEquals(set.map(_.minGapMs), List(400L, 160L, 160L))
+    assertEquals(set.map(_.threshold), List(0.3, 0.9, 0.3))
+    assertEquals(set.map(_.smoothing), List(0.5, 0.5, 0.9))
+  }
+
   test("no setting is on the page twice") {
     assertEquals(sliders.map(_.key).distinct, sliders.map(_.key))
   }
