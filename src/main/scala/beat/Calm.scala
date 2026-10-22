@@ -35,6 +35,51 @@ object Calm {
     pattern: Vector[Double] = Vector.empty
   )
 
+  /**
+   * `state` after hearing sixteenth `step`, with `learnt` sixteenths learnt, the bar's `levels`, how hard the kicks are
+   * `playing` and the music's `energy`, calmed by `settings` at `bpm`.
+   */
+  def advance(
+    state: State,
+    learnt: Long,
+    step: Long,
+    levels: Vector[Double],
+    playing: Double,
+    energy: Double,
+    settings: RhythmSettings,
+    bpm: Double
+  ): State = {
+    val moved = learnt != state.learnt
+    val sixteenths = learnt - state.learnt
+    val nextStrength = if (moved) strength(state.strength, playing, settings.smoothing, sixteenths) else state.strength
+    val nextEnergy = smoothedEnergy(state, moved, energy, settings.smoothing, sixteenths)
+    val lights = playedLights(state, step, levels, nextStrength, settings, bpm)
+    State(nextStrength, nextEnergy, learnt, nextLastPulse(state, step, lights), lights)
+  }
+
+  private def smoothedEnergy(state: State, moved: Boolean, energy: Double, smoothing: Double, sixteenths: Long) =
+    if (smoothing <= 0) None
+    else if (moved) Some(state.energy.fold(energy)(follow(_, energy, smoothing, sixteenths)))
+    else state.energy
+
+  private def playedLights(
+    state: State,
+    step: Long,
+    levels: Vector[Double],
+    strength: Double,
+    settings: RhythmSettings,
+    bpm: Double
+  ): Vector[Double] =
+    held(
+      pattern(levels, shown(strength, settings.smoothing), settings, bpm),
+      step,
+      state.lastPulse,
+      gapSteps(settings.minGapMs, bpm)
+    )
+
+  private def nextLastPulse(state: State, step: Long, lights: Vector[Double]): Option[Long] =
+    if (lights(Groove.slot(step)) > 0) Some(step) else state.lastPulse
+
   /** `levels` thresholded, scaled by the strength shown and spaced at least `minGapMs` apart at `bpm`. */
   def pattern(levels: Vector[Double], strength: Double, settings: RhythmSettings, bpm: Double): Vector[Double] =
     spaced(levels.map(level => threshold(level, settings.threshold) * strength), gapSteps(settings.minGapMs, bpm))

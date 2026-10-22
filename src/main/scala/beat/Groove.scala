@@ -47,25 +47,7 @@ case class Groove(
   def at(beats: Double, kick: Double, energy: Double, settings: RhythmSettings, bpm: Double): Groove = {
     val next = at(beats, kick)
     if (next.learnt < Groove.Steps) next
-    else {
-      val smoothing = settings.smoothing
-      val moved = next.learnt != next.calm.learnt
-      val sixteenths = next.learnt - next.calm.learnt
-      val strength =
-        if (moved) Calm.strength(next.calm.strength, next.playing, smoothing, sixteenths) else next.calm.strength
-      val smoothed =
-        if (smoothing <= 0) None
-        else if (moved) Some(next.calm.energy.fold(energy)(Calm.follow(_, energy, smoothing, sixteenths)))
-        else next.calm.energy
-      val lights = Calm.held(
-        Calm.pattern(next.levels, Calm.shown(strength, smoothing), settings, bpm),
-        next.step,
-        next.calm.lastPulse,
-        Calm.gapSteps(settings.minGapMs, bpm)
-      )
-      val lastPulse = if (lights(Groove.slot(next.step)) > 0) Some(next.step) else next.calm.lastPulse
-      next.copy(calm = Calm.State(strength, smoothed, next.learnt, lastPulse, lights))
-    }
+    else next.copy(calm = Calm.advance(next.calm, next.learnt, next.step, next.levels, next.playing, energy, settings, bpm))
   }
 
   /**
