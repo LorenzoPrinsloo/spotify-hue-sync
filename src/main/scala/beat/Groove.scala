@@ -57,26 +57,18 @@ case class Groove(
    */
   def pattern: Vector[Double] =
     if (learnt < Groove.Steps) Groove.Prior
-    else {
-      val sorted = shape.sorted
-      val middle = sorted(Groove.Steps / 2)
-      val lift = sorted.last - middle
-      val playing = if (usualLift <= 1e-12) 0.0 else math.min(1.0, Groove.lift(recent) / usualLift)
-      if (lift <= 1e-12) Vector.fill(Groove.Steps)(0.0)
-      else shape.map(v => math.max(0.0, math.min(1.0, (v - middle) / lift)) * playing)
-    }
+    else levels.map(_ * playing)
 
   /** Each sixteenth's level between the bar's typical sixteenth (0) and its loudest (1), before the kicks' strength. */
   def levels: Vector[Double] = {
-    val sorted = shape.sorted
-    val middle = sorted(Groove.Steps / 2)
-    val lift = sorted.last - middle
-    if (lift <= 1e-12) Vector.fill(Groove.Steps)(0.0)
-    else shape.map(v => math.max(0.0, math.min(1.0, (v - middle) / lift)))
+    val middle = Groove.typical(shape)
+    val lift = shape.max - middle
+    if (lift <= Groove.Negligible) Vector.fill(Groove.Steps)(0.0)
+    else shape.map(v => Groove.clamp((v - middle) / lift))
   }
 
   /** How hard the kicks are playing now compared with usual, from 0 to 1. */
-  def playing: Double = if (usualLift <= 1e-12) 0.0 else math.min(1.0, Groove.lift(recent) / usualLift)
+  def playing: Double = if (usualLift <= Groove.Negligible) 0.0 else Groove.clamp(Groove.lift(recent) / usualLift)
 
   /** The pattern the rhythm lights play: the calmed one, or a plain kick on every beat until a bar is learnt. */
   def lights: Vector[Double] = if (learnt < Groove.Steps) Groove.Prior else calm.pattern
@@ -86,6 +78,10 @@ case class Groove(
 }
 
 object Groove {
+
+  /** A lift this small is no pattern at all. */
+  val Negligible: Double = 1e-12
+
   val BeatsPerBar: Int = 4
   val StepsPerBeat: Int = 4
   val Steps: Int = BeatsPerBar * StepsPerBeat
@@ -112,8 +108,12 @@ object Groove {
   def slot(step: Long): Int = Math.floorMod(step, Steps.toLong).toInt
 
   /** How far the loudest sixteenth stands above the typical one. */
-  def lift(values: Vector[Double]): Double = {
-    val sorted = values.sorted
-    sorted.last - sorted(Steps / 2)
-  }
+  def lift(values: Vector[Double]): Double =
+    values.max - typical(values)
+
+  /** The bar's typical sixteenth: the median of `values`. */
+  def typical(values: Vector[Double]): Double = values.sorted.apply(Steps / 2)
+
+  /** `v` held between 0 and 1. */
+  def clamp(v: Double): Double = math.max(0.0, math.min(1.0, v))
 }

@@ -20,6 +20,10 @@ object Calm {
   /** The furthest a smoothed value stays from what it follows; bar-to-bar jitter is well inside this. */
   val Jitter: Double = 0.35
 
+  /** A sixteenth lasts this many milliseconds divided by the tempo in BPM: 60 000 ms a minute over four to a beat. */
+  private val SixteenthMsTimesBpm = 15000.0
+
+  /** Keeps a gap of a whole number of sixteenths from rounding up to the next one. */
   private val Epsilon = 1e-9
 
   /**
@@ -83,7 +87,7 @@ object Calm {
   /** `levels` thresholded, scaled by the strength shown and spaced at least `minGapMs` apart at `bpm`. */
   def pattern(levels: Vector[Double], strength: Double, settings: RhythmSettings, bpm: Double): Vector[Double] =
     spaced(levels.map(level => threshold(level, settings.threshold) * strength), gapSteps(settings.minGapMs, bpm))
-      .map(v => math.max(0.0, math.min(1.0, v)))
+      .map(Groove.clamp)
 
   /** 0 up to `t`, then rising to 1 at the loudest: (v - t) / (1 - t). */
   def threshold(level: Double, t: Double): Double =
@@ -92,7 +96,7 @@ object Calm {
   /** The fewest sixteenths at `bpm` that are at least `minGapMs` long; at least 1. */
   def gapSteps(minGapMs: Long, bpm: Double): Int =
     if (bpm <= 0 || minGapMs <= 0) 1
-    else math.max(1, math.ceil(minGapMs * bpm / 15000.0 - Epsilon).toInt)
+    else math.max(1, math.ceil(minGapMs * bpm / SixteenthMsTimesBpm - Epsilon).toInt)
 
   /**
    * Lit sixteenths fewer than `gap` apart, around the bar, merged into one on the group's first, as strong as its
@@ -138,7 +142,8 @@ object Calm {
       val upcoming = Groove.slot(step + 1)
       pattern.zipWithIndex.map { (v, slot) =>
         val next = step + 1 + Math.floorMod(slot - upcoming, Groove.Steps)
-        if (next - last >= 1 && next - last <= gap - 1) 0.0 else v
+        val since = next - last
+        if (since >= 1 && since < gap) 0.0 else v
       }
     }
 
