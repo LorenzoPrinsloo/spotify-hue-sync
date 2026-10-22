@@ -9,7 +9,7 @@ What's still to do, roughly in priority order. Tick items off as they land.
 
 ## Light show
 
-- [ ] **Avoid related but wrong tempos.** The tracker sometimes settles on 4/3 of a song's tempo. Checking the candidates at simple ratios of the winner (2/3, 3/4, 4/3, 3/2) against the low end could settle it.
+- [ ] **Avoid related but wrong tempos.** The tracker checks the 2/3, 3/4, 4/3 and 3/2 neighbours of its winner against the low end, but still settles on the wrong tempo when the kick itself supports both, and on double or half time, which the kick check doesn't cover.
 - [ ] **Find the downbeat.** Live beat detection lands every pulse on a beat, but doesn't know which beat starts the bar. Accenting beat one would make the show feel more musical.
 - [ ] **Tune the audio offset automatically,** by measuring the round trip from capture to the lights instead of setting `audio.offset-ms` by hand.
 - [ ] **Snares on lights of their own.** Rhythm lights follow the kick; a second group following the snare would add a backbeat. Snares share their range with vocals and guitars, so they're harder to pick out.

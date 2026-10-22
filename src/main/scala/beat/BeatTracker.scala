@@ -24,11 +24,13 @@ case class BeatTracker(
   hit: Option[Hit] = None,
   sparkle: Option[Hit] = None,
   sparkles: Long = 0,
-  groove: Option[Groove] = None
+  groove: Option[Groove] = None,
+  news: Vector[TempoNews] = Vector.empty,
+  pending: Option[BeatTracker.Pending] = None
 ) {
 
   def reading: AudioReading =
-    AudioReading(beat, levels.energy, levels.treble, hit, sparkle, sparkles, levels.pitch, groove.fold(Vector.empty)(_.pattern))
+    AudioReading(beat, levels.energy, levels.treble, hit, sparkle, sparkles, levels.pitch, groove.fold(Vector.empty)(_.pattern), news)
 
   def step(frame: AudioFrame): BeatTracker = {
     val s = settings
@@ -42,18 +44,20 @@ case class BeatTracker(
     // A tempo that stays put is evidence in itself: real songs often score well under `minConfidence` while the tempo
     // doesn't budge. So the tracker locks on to a confident estimate, or to a few seconds of estimates that agree;
     // once locked, a weaker estimate that agrees on the tempo keeps the beat.
-    val estimated =
+    val estimate =
       if (n % s.reestimateEvery != 0 || nextEnvelope.size < s.minFrames) None
       else BeatTracker.estimate(s, nextEnvelope, nextBass, nextLoudness, now, beat)
+    val estimated = estimate.map(_.state)
     val nextRecent = if (n % s.reestimateEvery != 0) recent else (recent ++ estimated).takeRight(s.steadyEstimates)
     val steady = BeatTracker.steady(nextRecent, s)
-    val nextBeat =
-      if (n % s.reestimateEvery != 0) beat
-      else if (nextEnvelope.size < s.minFrames) None
-      else
-        estimated
-          .filter(e => e.confidence >= s.minConfidence || steady || (e.confidence >= s.keepConfidence && beat.exists(BeatTracker.sameTempo(_, e))))
-          .orElse(beat.filter(held => (now - held.updatedAt).toNanos / 1e9 <= s.holdSeconds))
+    val accepted =
+      estimated.filter(e =>
+        e.confidence >= s.minConfidence || steady || (e.confidence >= s.keepConfidence && beat.exists(BeatTracker.sameTempo(_, e)))
+      )
+    val (BeatTracker.Held(nextBeat, nextPending, _), news) =
+      if (n % s.reestimateEvery != 0) (BeatTracker.Held(beat, pending, None), Vector.empty)
+      else if (nextEnvelope.size < s.minFrames) (BeatTracker.Held(None, None, None), Vector.empty)
+      else BeatTracker.decide(s, beat, pending, estimate, accepted, now)
 
     // Treble-led onsets are hi-hats and cymbals rather than the click of a kick, whose bass outweighs its treble.
     val trebleLed = onset.trebleFlux > BeatTracker.TrebleLed * onset.flux
@@ -91,7 +95,9 @@ case class BeatTracker(
       hit = nextHit,
       sparkle = newSparkle.orElse(sparkle),
       sparkles = if (newSparkle.isDefined) sparkles + 1 else sparkles,
-      groove = nextGroove
+      groove = nextGroove,
+      news = news,
+      pending = nextPending
     )
   }
 }
@@ -107,7 +113,75 @@ object BeatTracker {
   /** Tempos within this fraction of each other count as the same, measured slightly differently. */
   val TempoTolerance: Double = 0.04
 
-  def sameTempo(a: BeatState, b: BeatState): Boolean = math.abs(b.bpm - a.bpm) / a.bpm < TempoTolerance
+  /** Tempo ratios, such as 4:3 and 3:2, that a kick and other accents can sit at; half and double aren't among them. */
+  private val RelatedRatios: Vector[Double] = Vector(2.0 / 3, 3.0 / 4, 4.0 / 3, 3.0 / 2)
+
+  /** How many times better than the all-onset winner a related tempo must score on the kick to replace it. */
+  private val KickMargin: Double = 1.1
+
+  /** How close to a tempo ratio, relative to the ratio, a tempo must be to count as related. */
+  val RelatedTolerance: Double = 0.02
+
+  private val RelatedTempoRatios: Vector[Double] = Vector(1.0 / 2, 2.0 / 3, 3.0 / 4, 4.0 / 3, 3.0 / 2, 2.0)
+
+  /** Whether `bpm` sits at one of the ratios 1:2, 2:3, 3:4, 4:3, 3:2 and 2:1 of the `locked` tempo. */
+  def related(locked: Double, bpm: Double): Boolean =
+    RelatedTempoRatios.exists(r => math.abs(bpm / locked - r) / r < RelatedTolerance)
+
+  def sameTempo(a: BeatState, b: BeatState): Boolean = sameBpm(a.bpm, b.bpm)
+
+  private def sameBpm(a: Double, b: Double): Boolean = math.abs(b - a) / a < TempoTolerance
+
+  /**
+   * The beat to report for an estimate: the accepted one, or the old beat while it is within `holdSeconds`. A tempo
+   * related to the locked one waits out its hold first. Also the news, if the kick moved the tempo or a hold ended.
+   */
+  def decide(
+    s: TrackerSettings,
+    beat: Option[BeatState],
+    pending: Option[Pending],
+    estimate: Option[Estimate],
+    accepted: Option[BeatState],
+    now: FiniteDuration
+  ): (Held, Vector[TempoNews]) = {
+    val held = beat.filter(h => (now - h.updatedAt).toNanos / 1e9 <= s.holdSeconds)
+    val result = accepted
+      .flatMap(e => beat.map(hold(_, e, pending, now, s)))
+      .getOrElse(Held(accepted.orElse(held), None, None))
+    val followed = result.followedFrom.toVector.flatMap(from => result.beat.map(b => TempoNews.FollowedRelated(from, b.bpm)))
+    val kickMoved = for {
+      e <- estimate.toVector if result.followedFrom.isEmpty
+      winner <- e.movedFrom
+      kept <- result.beat if accepted.contains(kept)
+      if !beat.exists(sameTempo(_, kept))
+    } yield TempoNews.KickMoved(winner, kept.bpm)
+    (result, followed ++ kickMoved)
+  }
+
+  /** A related tempo waiting out its hold, and when the estimates first agreed on it. */
+  case class Pending(bpm: Double, since: FiniteDuration)
+
+  /** The beat to report, the tempo still waiting, and the locked tempo that was left when the hold ended. */
+  case class Held(beat: Option[BeatState], pending: Option[Pending], followedFrom: Option[Double])
+
+  /**
+   * A tempo related to the `locked` one has to be estimated steadily for `historySeconds` before it replaces the
+   * lock, which stays as it was meanwhile. Returns the beat, the tempo waiting with the time it was first seen,
+   * and the tempo left when the hold ended.
+   */
+  def hold(
+    locked: BeatState,
+    e: BeatState,
+    pending: Option[Pending],
+    now: FiniteDuration,
+    s: TrackerSettings
+  ): Held =
+    if (sameTempo(locked, e) || !related(locked.bpm, e.bpm)) Held(Some(e), None, None)
+    else {
+      val since = pending.collect { case Pending(bpm, at) if sameBpm(bpm, e.bpm) => at }.getOrElse(now)
+      if ((now - since).toNanos / 1e9 < s.historySeconds) Held(Some(locked.copy(updatedAt = now)), Some(Pending(e.bpm, since)), None)
+      else Held(Some(e), None, Some(locked.bpm))
+    }
 
   /** Whether the last `steadySeconds` of estimates all agree on the tempo, and are typically at least `keepConfidence`. */
   def steady(recent: Vector[BeatState], s: TrackerSettings): Boolean =
@@ -172,6 +246,29 @@ object BeatTracker {
     }.maxBy(_._2)
   }
 
+  /** A tempo estimate, and the all-onset winner's bpm when the kick moved it to a related tempo. */
+  case class Estimate(state: BeatState, movedFrom: Option[Double])
+
+  /**
+   * Accents or a bass line can make a related tempo win on all the onsets while the kick keeps another: the period of
+   * the related tempo the kick clearly prefers to the `winner`, if there is one.
+   */
+  private def kickPreferred(low: Array[Double], lowMean: Double, winner: Double, minPeriod: Double, maxPeriod: Double): Option[Double] = {
+    val lowSpread = math.sqrt(low.map(v => (v - lowMean) * (v - lowMean)).sum / low.length)
+    def kickScore(p: Double): Double = {
+      val (_, m, k) = bestOffset(low, p)
+      (m - lowMean) / math.max(lowSpread, 1e-9) * math.sqrt(k.toDouble)
+    }
+    val winnerScore = kickScore(winner)
+    RelatedRatios
+      .map(winner / _)
+      .filter(p => p >= minPeriod && p <= maxPeriod)
+      .map(p => (p, kickScore(p)))
+      .maxByOption(_._2)
+      .filter((_, kick) => kick > 0 && kick > KickMargin * winnerScore)
+      .map(_._1)
+  }
+
   /**
    * The tempo and how confident it is come from all the onsets, `envelope`. Where the beats fall comes from the low
    * end alone, `bass`: the kick lands on the beat, while hi-hats usually land between beats and can outweigh it.
@@ -183,7 +280,7 @@ object BeatTracker {
     loudness: Vector[Double],
     now: FiniteDuration,
     previous: Option[BeatState]
-  ): Option[BeatState] = {
+  ): Option[Estimate] = {
     val recentLoudness = loudness.takeRight((2 * s.frameRate).toInt)
     val quiet = recentLoudness.isEmpty || recentLoudness.sum / recentLoudness.size < s.silenceRms
     val env = smoothed(envelope)
@@ -204,7 +301,14 @@ object BeatTracker {
       val minPeriod = 60 * s.frameRate / s.maxBpm
       val maxPeriod = math.min(env.length / 2.0, 60 * s.frameRate / s.minBpm)
       val candidates = Iterator.iterate(minPeriod)(_ + 0.1).takeWhile(_ <= maxPeriod).toVector
-      val period = candidates.maxBy(score)
+      val winner = candidates.maxBy(score)
+
+      val low = smoothed(bass)
+      val lowMean = low.sum / math.max(1, low.length)
+      val lowUsable = low.length == env.length && low.exists(_ > lowMean + 1e-9)
+
+      val kickMoved = if (lowUsable) kickPreferred(low, lowMean, winner, minPeriod, maxPeriod) else None
+      val period = kickMoved.getOrElse(winner)
       val measuredBpm = 60 * s.frameRate / period
       val bpm = previous match {
         case Some(p) if math.abs(measuredBpm - p.bpm) / p.bpm < TempoTolerance => 0.7 * p.bpm + 0.3 * measuredBpm
@@ -214,9 +318,7 @@ object BeatTracker {
       val (_, gridLevel, _) = bestOffset(env, beatFrames)
       val confidence = (gridLevel - mean) / spread
 
-      val low = smoothed(bass)
-      val lowMean = low.sum / math.max(1, low.length)
-      val phaseFrom = if (low.length == env.length && low.exists(_ > lowMean + 1e-9)) low else env
+      val phaseFrom = if (lowUsable) low else env
       val phaseMean = phaseFrom.sum / phaseFrom.length
       val (bestAt, bestLevel, _) = bestOffset(phaseFrom, beatFrames)
       // Once there's a beat, follow its grid (allowing for a little drift) and only move to another phase once that
@@ -237,7 +339,7 @@ object BeatTracker {
       }
       val beatAt = now - (offset * s.hopDuration.toNanos).toLong.nanos
       val number = previous.fold(0L)(p => p.number + math.round((beatAt - p.beatAt).toNanos.toDouble / p.period.toNanos))
-      Some(BeatState(bpm, beatAt, now, confidence, doubt, number))
+      Some(Estimate(BeatState(bpm, beatAt, now, confidence, doubt, number), kickMoved.map(_ => 60 * s.frameRate / winner)))
     }
   }
 }

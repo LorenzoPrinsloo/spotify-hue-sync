@@ -46,6 +46,26 @@ object Synth {
     (buffer, beats)
   }
 
+  /** Loud bursts of mid and high tones with next to nothing below 300 Hz: they move the onsets but not the kick. */
+  def accents(seconds: Double, bpmAt: Double => Double, firstBeat: Double = 0.1, loudness: Double = 1.0, seed: Long = 5L): Array[Float] = {
+    val rnd = new Random(seed)
+    val buffer = new Array[Float]((seconds * sr).toInt)
+    val times = Iterator.iterate(firstBeat)(t => t + 60.0 / bpmAt(t)).takeWhile(_ < seconds)
+    times.foreach { at =>
+      val start = (at * sr).toInt
+      val raw = Array.fill((0.08 * sr).toInt + 4)(rnd.nextGaussian())
+      for (i <- 0 until raw.length - 4 if start + i < buffer.length) {
+        val t = i / sr
+        val highPassed = raw(i + 4) - 4 * raw(i + 3) + 6 * raw(i + 2) - 4 * raw(i + 1) + raw(i)
+        buffer(start + i) =
+          (buffer(start + i) + loudness * (1 - math.exp(-t * 1500)) * math.exp(
+            -t * 40
+          ) * math.pow(math.cos(math.Pi / 2 * i / (raw.length - 4)), 2) * highPassed * 0.07).toFloat
+      }
+    }
+    buffer
+  }
+
   /** A cymbal crash at `at` seconds: loud, bright and long, on top of the given audio. */
   def withCrash(audio: Array[Float], at: Double, loudness: Double = 1.5, seed: Long = 2L): Array[Float] = {
     val rnd = new Random(seed)
