@@ -16,7 +16,7 @@ Calm the rhythm lights in the tracker, where the bpm, grid step and per-sixteent
 - `follow`: each learnt sixteenth moves the value 1/16 of a bar's step towards the target. The step is max(0.02, 0.03 × (1 − s)/s) per bar, but the value never stays more than Jitter = 0.35 from the target.
   - The dead band bounds the slowest recovery. At s = 0.9 a large change closes to within 0.35 at once and finishes at 0.02 a bar, within 18 bars.
   - At the default 0.5, ±20% loudness keeps `playing` (capped at 1) within 0.65–1, so the step applies. Strength moves at most 4.2% of the peak per bar and energy at most 3.8%, under 10% together.
-- Drop-out and return: when `playing` or the strength is under 0.4, the strength takes `playing` at once. While s > 0, a strength under 0.15 shows as rest. `recent` halves every bar, so the lights rest by bar 3 and are back above 0.5 within 2 bars.
+- Drop-out and return: when `playing` or the strength is under 0.4, the strength takes `playing` at once. While s > 0, a strength under 0.2 shows as rest. `recent` halves every bar and the strength settles a little above 0.15 after three, so the lights rest from bar 4 and are back above 0.5 within 2 bars.
 - At s = 0, strength is `playing` and `rhythmEnergy` is None. With 0/0/0 every step is the identity, so the output equals `pattern` exactly. `Prior` is played unchanged until a bar is learnt.
 
 ## Components and call direction
@@ -95,7 +95,7 @@ object Calm {
   val DropOut: Double = 0.4
 
   /** While smoothing, a strength below this shows as rest. */
-  val Resting: Double = 0.15
+  val Resting: Double = 0.2
 
   /** How far a smoothed value may move in a bar at smoothing 0.5; it scales with (1 - s) / s. */
   val StepPerBar: Double = 0.03

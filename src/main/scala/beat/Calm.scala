@@ -9,7 +9,7 @@ object Calm {
   val DropOut: Double = 0.4
 
   /** While smoothing, a strength below this shows as rest. */
-  val Resting: Double = 0.15
+  val Resting: Double = 0.2
 
   /** How far a smoothed value may move in a bar at smoothing 0.5; it scales with (1 - s) / s. */
   val StepPerBar: Double = 0.03

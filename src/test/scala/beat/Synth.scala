@@ -46,6 +46,46 @@ object Synth {
     (buffer, beats)
   }
 
+  /** A bass note: a sine at `hz` for `length` seconds, with a quick attack and a gentle fade. */
+  private def note(buffer: Array[Float], at: Double, loudness: Double, hz: Double, length: Double): Unit = {
+    val start = (at * sr).toInt
+    for (i <- 0 until (length * sr).toInt if start + i >= 0 && start + i < buffer.length) {
+      val t = i / sr
+      val env = math.min(1.0, t / 0.004) * math.exp(-t * 6)
+      buffer(start + i) = (buffer(start + i) + loudness * env * math.sin(2 * math.Pi * hz * t)).toFloat
+    }
+  }
+
+  /**
+   * `seconds` of audio at a steady `bpm` whose first beat is at `firstBeat` seconds, with a kick thump and a bass note
+   * on the sixteenths where `kicks` and `bass` (given the sixteenth counted from the first beat) are above 0, scaled by
+   * `barLoudness` of the bar, and hi-hats on the eighths. Returns the audio and the time of each sixteenth.
+   */
+  def pattern(
+    seconds: Double,
+    bpm: Double,
+    kicks: Int => Double,
+    bass: Int => Double = _ => 0.0,
+    barLoudness: Int => Double = _ => 1.0,
+    hats: Int => Boolean = _ => true,
+    seed: Long = 1L,
+    firstBeat: Double = 0.25,
+    hatLoudness: Double = 0.25,
+    bassHz: Double = 80
+  ): (Array[Float], Vector[Double]) = {
+    val rnd = new Random(seed)
+    val buffer = Array.fill((seconds * sr).toInt)((rnd.nextGaussian() * 0.01).toFloat)
+    val sixteenth = 15.0 / bpm
+    val times = Iterator.from(0).map(firstBeat + _ * sixteenth).takeWhile(_ < seconds).toVector
+    times.zipWithIndex.foreach { (t, step) =>
+      val loud = barLoudness(step / 16)
+      if (kicks(step) > 0) hit(buffer, t, 0.8 * kicks(step) * loud, bright = false, rnd)
+      if (bass(step) > 0) note(buffer, t, 0.8 * bass(step) * loud, bassHz, sixteenth)
+      if (step % 2 == 0 && hats(step / 16)) hit(buffer, t, hatLoudness * loud, bright = true, rnd)
+    }
+    (buffer, times)
+  }
+
   /** Loud bursts of mid and high tones with next to nothing below 300 Hz: they move the onsets but not the kick. */
   def accents(seconds: Double, bpmAt: Double => Double, firstBeat: Double = 0.1, loudness: Double = 1.0, seed: Long = 5L): Array[Float] = {
     val rnd = new Random(seed)
